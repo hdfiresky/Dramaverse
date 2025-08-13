@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Dramaverse</title>
+    <script>
+      // Immediately-invoked function to set the theme on initial load.
+      // It parses the theme from localStorage (where it's stored as a JSON string)
+      // to prevent a flash of unstyled content (FOUC).
+      (function() {
+        try {
+          const item = localStorage.getItem('dramaverse_theme');
+          const theme = item ? JSON.parse(item) : null;
+          if (theme === 'dark' || (!theme && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+            document.documentElement.classList.add('dark');
+          }
+        } catch (e) {
+          // Ignore any errors, the React app will handle setting the theme later.
+        }
+      })();
+    </script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        darkMode: 'class', // Enable class-based dark mode
+        theme: {
+          extend: {
+            colors: {
+              'brand-primary': 'rgb(var(--color-brand-primary) / <alpha-value>)',
+              'brand-secondary': 'rgb(var(--color-brand-secondary) / <alpha-value>)',
+              'brand-accent': 'rgb(var(--color-brand-accent) / <alpha-value>)',
+              'brand-accent-hover': 'rgb(var(--color-brand-accent-hover) / <alpha-value>)',
+              'brand-text-primary': 'rgb(var(--color-brand-text-primary) / <alpha-value>)',
+              'brand-text-secondary': 'rgb(var(--color-brand-text-secondary) / <alpha-value>)',
+            },
+            fontFamily: {
+              sans: ['Inter', 'sans-serif'],
+            },
+            animation: {
+                'fade-in': 'fadeIn 0.3s ease-in-out',
+            },
+            keyframes: {
+                fadeIn: {
+                    '0%': { opacity: 0 },
+                    '100%': { opacity: 1 },
+                },
+            }
+          },
+        },
+      }
+    </script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --color-brand-primary: 241 245 249; /* slate-100 */
+            --color-brand-secondary: 255 255 255; /* white */
+            --color-brand-accent: 99 102 241; /* indigo-500 */
+            --color-brand-accent-hover: 79 70 229; /* indigo-600 */
+            --color-brand-text-primary: 30 41 59; /* slate-800 */
+            --color-brand-text-secondary: 100 116 139; /* slate-500 */
+        }
+        .dark {
+            --color-brand-primary: 17 24 39; /* slate-900 */
+            --color-brand-secondary: 31 41 55; /* slate-800 */
+            --color-brand-accent: 129 140 248; /* indigo-400 */
+            --color-brand-accent-hover: 99 102 241; /* indigo-500 */
+            --color-brand-text-primary: 248 250 252; /* slate-50 */
+            --color-brand-text-secondary: 148 163 184; /* slate-400 */
+        }
+        body {
+            background-color: rgb(var(--color-brand-primary));
+            color: rgb(var(--color-brand-text-primary));
+            transition: background-color 0.3s ease, color 0.3s ease;
+        }
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 8px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: #e2e8f0; /* slate-200 */
+            border-radius: 10px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #94a3b8; /* slate-400 */
+            border-radius: 10px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+            background: #64748b; /* slate-500 */
+        }
+        .dark .custom-scrollbar::-webkit-scrollbar-track {
+            background: #1f2937; /* slate-800 */
+        }
+        .dark .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #475569; /* slate-600 */
+        }
+        .dark .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+            background: #64748b; /* slate-500 */
+        }
+    </style>
+  <script type="importmap">
+{
+  "imports": {
+    "react/": "https://esm.sh/react@^19.1.1/",
+    "react": "https://esm.sh/react@^19.1.1",
+    "react-dom/": "https://esm.sh/react-dom@^19.1.1/",
+    "react-dom": "https://esm.sh/react-dom@^19.1.1",
+    "@google/genai": "https://esm.sh/@google/genai@^1.13.0"
+  }
+}
+</script>
+<link rel="stylesheet" href="/index.css">
+</head>
+  <body>
+    <div id="root"></div>
+    <div id="modal-root"></div>
+    <script type="module" src="/index.tsx"></script>
+  </body>
+</html>
