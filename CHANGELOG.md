@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.0.3](https://github.com/hdfiresky/Problembuddy-deploy/compare/v0.0.2...v0.0.3) (2025-08-18)
+
+
+### Bug Fixes
+
+* dramaverse pwa opening on root ([04863d4](https://github.com/hdfiresky/Problembuddy-deploy/commit/04863d460e2955fff6a6563729a16a86db9c2c9b))
+
 ### [0.0.2](https://github.com/hdfiresky/Problembuddy-deploy/compare/v0.0.1...v0.0.2) (2025-08-18)
 
 
