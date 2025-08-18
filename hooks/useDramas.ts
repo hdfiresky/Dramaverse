@@ -26,7 +26,7 @@ export const useDramas = (filters: Filters, searchTerm: string, sortPriorities: 
     useEffect(() => {
         const fetchDramas = async () => {
             try {
-                const response = await fetch('/data/dramas.json');
+                const response = await fetch('/dramaverse/data/dramas.json');
                 if (!response.ok) throw new Error("Failed to fetch drama data.");
                 const data: Drama[] = await response.json();
                 
