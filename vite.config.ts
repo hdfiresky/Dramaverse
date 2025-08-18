@@ -28,8 +28,8 @@ export default defineConfig(({ mode }) => {
         manifest: {
           name: "Dramaverse",
           short_name: "Dramaverse",
-          start_url: "/",
-          scope: "/",
+          start_url: "/dramaverse/",
+          scope: "/dramaverse/",
           display: "standalone",
           background_color: "#ffffff",
           theme_color: "#ffffff",
