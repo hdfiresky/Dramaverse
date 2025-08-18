@@ -1,4 +1,3 @@
-        },
 import path from "path";
 import { VitePWA } from 'vite-plugin-pwa'; 
 import { defineConfig, loadEnv } from "vite";
@@ -6,7 +5,7 @@ import { defineConfig, loadEnv } from "vite";
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, ".", "");
   return {
-    base: "/launchpad/",
+    base: "/dramaverse/",
     define: {
       "process.env.API_KEY": JSON.stringify(env.GEMINI_API_KEY),
       "process.env.GEMINI_API_KEY": JSON.stringify(env.GEMINI_API_KEY),
@@ -27,8 +26,8 @@ export default defineConfig(({ mode }) => {
           "pwa-512x512.webp",
         ],
         manifest: {
-          name: "Launchpad",
-          short_name: "Launch",
+          name: "Dramaverse",
+          short_name: "Dramaverse",
           start_url: "/",
           scope: "/",
           display: "standalone",
@@ -36,17 +35,17 @@ export default defineConfig(({ mode }) => {
           theme_color: "#ffffff",
           icons: [
             {
-              src: "/launchpad/pwa-192x192.webp",
+              src: "/dramaverse/pwa-192x192.webp",
               sizes: "192x192",
               type: "image/webp",
             },
             {
-              src: "/launchpad/pwa-512x512.webp",
+              src: "/dramaverse/pwa-512x512.webp",
               sizes: "512x512",
               type: "image/webp",
             },
             {
-              src: "/launchpad/pwa-512x512.webp",
+              src: "/dramaverse/pwa-512x512.webp",
               sizes: "512x512",
               type: "image/webp",
               purpose: "any maskable",
