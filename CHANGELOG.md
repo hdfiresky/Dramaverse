@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.0.4](https://github.com/hdfiresky/Problembuddy-deploy/compare/v0.0.3...v0.0.4) (2025-08-18)
+
+
+### Features
+
+* dramaverse source updated ([182c3c8](https://github.com/hdfiresky/Problembuddy-deploy/commit/182c3c8d6e2e4d3e22b5878692a2c57119d6ca41))
+
 ### [0.0.3](https://github.com/hdfiresky/Problembuddy-deploy/compare/v0.0.2...v0.0.3) (2025-08-18)
 
 
