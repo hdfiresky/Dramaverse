@@ -47,7 +47,8 @@ This document provides a comprehensive guide to setting up and running the optio
     "scripts": {
       "start": "node server.js",
       "dev": "nodemon server.js",
-      "setup-db": "node database.js && node seed.js"
+      "setup-db": "node database.js && node seed.js",
+      "prod": "pm2 start ecosystem.config.js --env production"
     },
     ```
 
@@ -61,6 +62,7 @@ After setup, your `backend` directory should look like this:
 /backend
 ├── authMiddleware.js   # Middleware for JWT verification (for HTTP routes)
 ├── database.js         # DB connection and schema setup
+├── ecosystem.config.js # PM2 configuration for production
 ├── seed.js             # Script to populate DB from JSON
 ├── server.js           # Main Express & Socket.IO server file
 ├── dramas.json         # Copied from the frontend
@@ -171,12 +173,33 @@ db.serialize(() => {
 });
 ```
 
+### `ecosystem.config.js`
+This file configures the PM2 process manager for production. It allows you to define environment variables, run the app in cluster mode to leverage multiple CPU cores, and manage restarts.
+
+```javascript
+module.exports = {
+  apps : [{
+    name   : "dramaverse-backend",
+    script : "./server.js",
+    instances: "max", // Creates a worker for each available CPU core
+    exec_mode: "cluster",
+    env_production: {
+       NODE_ENV: "production",
+       // Set your JWT_SECRET here for production.
+       // It's more secure than a .env file for many deployment environments.
+       JWT_SECRET: "your-long-random-super-secret-string-for-production" 
+    }
+  }]
+}
+```
+
 ### `authMiddleware.js`
-This is an Express middleware to protect HTTP routes by verifying the JWT. (No changes from previous version).
+This is an Express middleware to protect HTTP routes by verifying the JWT.
 
 ```javascript
 const jwt = require('jsonwebtoken');
-const JWT_SECRET = 'your-super-secret-key-change-me'; // Use an environment variable in production!
+// The secret is now preferentially read from an environment variable for production.
+const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-key-change-me';
 
 module.exports = (req, res, next) => {
     const authHeader = req.headers.authorization;
@@ -195,7 +218,7 @@ module.exports = (req, res, next) => {
 ```
 
 ### `server.js`
-This is the main server file that ties everything together. It now includes a secure CORS configuration for both Express and Socket.IO.
+This is the main server file that ties everything together. It has been updated to read the `JWT_SECRET` from environment variables, which is a best practice for production.
 
 ```javascript
 const express = require('express');
@@ -211,45 +234,36 @@ const app = express();
 const server = http.createServer(app);
 
 // --- Security: Configure a CORS Whitelist ---
-// In production, replace these with your actual frontend domain.
 const allowedOrigins = [
     'http://localhost:5173', // Default for Vite dev server
-    'http://127.0.0.1:5173',
+    'http://12.0.0.1:5173',
     // 'https://your-production-frontend-domain.com'
 ];
 
 const corsOptions = {
     origin: function (origin, callback) {
-        // Allow requests with no origin (like mobile apps or curl requests)
-        if (!origin) return callback(null, true);
-        if (allowedOrigins.indexOf(origin) === -1) {
-            const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
-            return callback(new Error(msg), false);
+        if (!origin || allowedOrigins.indexOf(origin) !== -1) {
+            callback(null, true);
+        } else {
+            callback(new Error('Not allowed by CORS'));
         }
-        return callback(null, true);
     },
 };
 
-const io = new Server(server, {
-    cors: corsOptions
-});
+const io = new Server(server, { cors: corsOptions });
 
-app.use(cors(corsOptions)); // Apply secure CORS to Express routes
+app.use(cors(corsOptions));
 app.use(express.json());
 
 const PORT = 3001;
-const JWT_SECRET = 'your-super-secret-key-change-me'; // IMPORTANT: See Security Best Practices below
+const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-key-change-me';
 
 // --- Socket.IO Middleware for Auth ---
 io.use((socket, next) => {
     const token = socket.handshake.auth.token;
-    if (!token) {
-        return next(new Error('Authentication error: Token not provided'));
-    }
+    if (!token) return next(new Error('Authentication error: Token not provided'));
     jwt.verify(token, JWT_SECRET, (err, decoded) => {
-        if (err) {
-            return next(new Error('Authentication error: Invalid token'));
-        }
+        if (err) return next(new Error('Authentication error: Invalid token'));
         socket.user = decoded;
         next();
     });
@@ -258,8 +272,6 @@ io.use((socket, next) => {
 // --- Socket.IO Connection Handling ---
 io.on('connection', (socket) => {
     console.log(`Real-time client connected: ${socket.user.username} (ID: ${socket.user.id})`);
-    // Each user joins a private room based on their user ID. We broadcast updates to this room.
-    // This is a critical security measure to ensure users only receive their own data.
     socket.join(`user_${socket.user.id}`);
     
     socket.on('disconnect', () => {
@@ -327,10 +339,32 @@ app.post('/api/auth/login', (req, res) => {
 // --- User Data Endpoints (Protected) ---
 app.get('/api/user/data', authMiddleware, (req, res) => {
     emitUserDataUpdate(req.user.id)
-      .then(() => res.status(202).json({ message: "Data fetch initiated and will be sent via WebSocket." }))
-      .catch(() => res.status(500).json({ message: "Failed to fetch user data." }));
+      .then(() => {
+          // Immediately fetch the data to send back in the initial HTTP response
+          db.get('SELECT * FROM users WHERE id = ?', [req.user.id], async (err, user) => {
+              if (err || !user) return res.status(404).json({ message: "User not found." });
+              try {
+                  const userData = { favorites: [], statuses: {}, reviews: {}, episodeReviews: {} };
+                  const queries = [
+                      new Promise((resolve, reject) => db.all('SELECT drama_url FROM user_favorites WHERE user_id = ?', [req.user.id], (err, rows) => err ? reject(err) : resolve(rows || []))),
+                      new Promise((resolve, reject) => db.all('SELECT * FROM user_statuses WHERE user_id = ?', [req.user.id], (err, rows) => err ? reject(err) : resolve(rows || []))),
+                      new Promise((resolve, reject) => db.all('SELECT * FROM user_episode_reviews WHERE user_id = ?', [req.user.id], (err, rows) => err ? reject(err) : resolve(rows || []))),
+                  ];
+                  const [favorites, statuses, episodeReviews] = await Promise.all(queries);
+                  userData.favorites = favorites.map(f => f.drama_url);
+                  statuses.forEach(s => { userData.statuses[s.drama_url] = { status: s.status, currentEpisode: s.currentEpisode }; });
+                  episodeReviews.forEach(r => {
+                      if (!userData.episodeReviews[r.drama_url]) userData.episodeReviews[r.drama_url] = {};
+                      userData.episodeReviews[r.drama_url][r.episode_number] = { text: r.review_text, updatedAt: r.updated_at };
+                  });
+                  res.json(userData);
+              } catch (error) {
+                  res.status(500).json({ message: "Failed to fetch user data." });
+              }
+          });
+      })
+      .catch(() => res.status(500).json({ message: "Failed to initiate data fetch." }));
 });
-
 
 app.post('/api/user/favorites', authMiddleware, (req, res) => {
     const { dramaUrl, isFavorite } = req.body;
@@ -380,7 +414,7 @@ app.post('/api/user/reviews/episodes', authMiddleware, (req, res) => {
     db.get('SELECT updated_at, review_text FROM user_episode_reviews WHERE user_id = ? AND drama_url = ? AND episode_number = ?', [userId, dramaUrl, episodeNumber], (err, row) => {
         if (err) return res.status(500).json({ message: 'Database query failed.' });
 
-        if (!force && row && row.updated_at !== clientUpdatedAt) {
+        if (!force && row && row.updated_at > clientUpdatedAt) {
             return res.status(409).json({ message: 'Conflict detected.', serverVersion: { text: row.review_text, updatedAt: row.updated_at } });
         }
 
@@ -409,18 +443,43 @@ Follow these steps in your terminal, from inside the `/backend` directory:
     ```
     This will create a `dramas.db` file and populate it with all the drama data. You only need to run this once, or again if you update `dramas.json`.
 
-2.  **Start the Server**:
+2.  **Start the Server for Development**:
     ```bash
     npm run dev
     ```
-    Your backend server is now running on `http://localhost:3001`. You can now go to the frontend code, set `BACKEND_MODE` to `true` in `config.ts`, and the application will connect to this server for both HTTP requests and real-time WebSocket communication.
+    Your backend server is now running on `http://localhost:3001` with `nodemon`, which will automatically restart on file changes.
 
-## 6. Security Best Practices
+## 6. Production Deployment with PM2
+
+For a production environment, you should use a process manager like [PM2](https://pm2.keymetrics.io/) to keep your application alive, enable clustering, and manage logs.
+
+1.  **Install PM2 Globally**:
+    ```bash
+    npm install pm2 -g
+    ```
+2.  **Use the Ecosystem File**: We've already created an `ecosystem.config.js`. This file tells PM2 how to run the application, including setting environment variables and enabling cluster mode to take advantage of all available CPU cores for better performance.
+
+3.  **Start the Production Server**:
+    From your `/backend` directory, simply run the `prod` script:
+    ```bash
+    npm run prod
+    ```
+    This command will start the application in the background, managed by PM2.
+
+4.  **Useful PM2 Commands**:
+    -   `pm2 list`: See the status of all managed applications.
+    -   `pm2 monit`: Open a real-time dashboard to monitor CPU and memory usage.
+    -   `pm2 logs dramaverse-backend`: View the logs for your app.
+    -   `pm2 restart dramaverse-backend`: Gracefully restart the app.
+    -   `pm2 stop dramaverse-backend`: Stop the app.
+    -   `pm2 delete dramaverse-backend`: Stop and remove the app from PM2's list.
+
+## 7. Security Best Practices
 
 To move this backend from a development setup to a production environment, consider the following critical security enhancements.
 
 ### CORS Configuration
-The provided `server.js` code has been updated to use a secure CORS whitelist. The default allows connections from `localhost:5173` for development.
+The provided `server.js` code uses a secure CORS whitelist.
 
 **Action Required for Production**: Before deploying, you **must** update the `allowedOrigins` array in `server.js` to include your frontend application's official domain name. Remove any `localhost` entries.
 
@@ -435,19 +494,17 @@ const allowedOrigins = [
 ### Secret Keys
 The `JWT_SECRET` is used to sign and verify authentication tokens. A weak or exposed secret key can compromise all user accounts.
 
-**Action Required for Production**: The secret key should **never** be hardcoded in the source code. Use an environment variable instead.
-1.  Install the `dotenv` package: `npm install dotenv`
-2.  Create a `.env` file in your `/backend` directory:
-    ```
-    JWT_SECRET=your-long-random-super-secret-string
-    ```
-3.  Load it in `server.js`:
-    ```javascript
-    require('dotenv').config();
-    // ...
-    const JWT_SECRET = process.env.JWT_SECRET;
-    ```
-Ensure the `.env` file is added to your `.gitignore` file and is never committed to version control.
+**Action Required for Production**: The secret key should **never** be hardcoded in version control. We have configured the app to use an environment variable. The recommended way to set this is in your `ecosystem.config.js`:
+```javascript
+// ecosystem.config.js
+// ...
+env_production: {
+    NODE_ENV: "production",
+    JWT_SECRET: "your-long-random-super-secret-string-for-production" 
+}
+//...
+```
+Ensure this file is handled securely and not publicly exposed. For higher security, some platforms allow you to inject environment variables directly into the server environment, which PM2 can also use.
 
 ### Rate Limiting
 Without rate limiting, a malicious actor could spam your login endpoints or WebSocket connection attempts, potentially leading to a Denial-of-Service (DoS) attack.
@@ -457,4 +514,6 @@ Without rate limiting, a malicious actor could spam your login endpoints or WebS
 -   For Socket.IO, you can use libraries like `socket.io-rate-limit` or implement custom middleware to limit connection attempts or events per user.
 
 ### Input Validation
-If you add client-to-server WebSocket events in the future (where the client sends data to the server over the socket), **never trust the input**. Always validate and sanitize any data received from a client before using it in database queries or broadcasting it to other clients. This helps prevent vulnerabilities like SQL injection or Cross-Site Scripting (XSS).
+Always validate and sanitize any data received from a client before using it in database queries or broadcasting it to other clients. This helps prevent vulnerabilities like SQL injection or Cross-Site Scripting (XSS).
+```
+
