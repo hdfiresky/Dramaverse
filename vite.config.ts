@@ -7,6 +7,8 @@ import { VitePWA } from 'vite-plugin-pwa';
 // For example: import react from '@vitejs/plugin-react';
 
 export default defineConfig({
+  // Set the base path if deploying to a subdirectory like https://example.com/dramaveerse/
+  base: '/dramaveerse/',
   plugins: [
     // react(), // Assuming you are using the official Vite React plugin.
     VitePWA({
@@ -24,8 +26,8 @@ export default defineConfig({
         theme_color: '#111827', // dark-slate-900
         background_color: '#111827',
         display: 'standalone',
-        scope: '/',
-        start_url: '/',
+        scope: '/dramaveerse/',
+        start_url: '/dramaveerse/',
         icons: [
           {
             src: 'pwa-192x192.png',
