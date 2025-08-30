@@ -2,5 +2,5 @@
   "name": "Dramaverse",
   "description": "An advanced drama finder application that allows users to explore, filter, sort, and manage a vast library of dramas. Features include local user accounts, personalized watchlists, ratings, and an intelligent similarity-based recommendation system.",
   "requestFramePermissions": [],
-  "prompt": ""
+  "prompt": "make this a frontend only and frontend with backend mode app. write all backend related files in backend md only. the switching between mode should be seem less with a flag BACKEND_MODE being false or true. default should be false. backend will be in express with sqlite. make instructions as to how to convert existing json to sqlite3 or keep as json in backend and letting it communicate with express. decide what is best. and follow that. backend md should be thorough as to how to this. it would be helpful if backend can take more json and avoid duplication. frontend only mode should still work as is with local storage"
 }

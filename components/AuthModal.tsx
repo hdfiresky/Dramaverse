@@ -5,6 +5,7 @@
 import React, { useState } from 'react';
 import ReactDOM from 'react-dom';
 
+// Fix: Updated onLogin and onRegister prop types to accept a Promise, aligning with the async functions from useAuth.
 interface AuthModalProps {
     /** A boolean to control the visibility of the modal. */
     isOpen: boolean;
@@ -14,16 +15,16 @@ interface AuthModalProps {
      * Login handler function provided by the `useAuth` hook.
      * @param {string} username - The user's username.
      * @param {string} password - The user's password.
-     * @returns {string | null} An error message string if login fails, otherwise null.
+     * @returns {Promise<string | null>} A promise that resolves to an error message string if login fails, otherwise null.
      */
-    onLogin: (username: string, password: string) => string | null;
+    onLogin: (username: string, password: string) => Promise<string | null>;
     /**
      * Registration handler function provided by the `useAuth` hook.
      * @param {string} username - The desired username.
      * @param {string} password - The desired password.
-     * @returns {string | null} An error message string if registration fails, otherwise null.
+     * @returns {Promise<string | null>} A promise that resolves to an error message string if registration fails, otherwise null.
      */
-    onRegister: (username: string, password: string) => string | null;
+    onRegister: (username: string, password: string) => Promise<string | null>;
 }
 
 /**
@@ -47,20 +48,21 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onLogin, 
      * Handles the form submission for both login and registration.
      * @param {React.FormEvent} e - The form submission event.
      */
-    const handleSubmit = (e: React.FormEvent) => {
+    // Fix: Converted handleSubmit to an async function to await the results of onLogin and onRegister.
+    const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setError('');
         setSuccess('');
 
         if (isLogin) {
-            const loginError = onLogin(username, password);
+            const loginError = await onLogin(username, password);
             if (loginError) {
                 setError(loginError);
             } else {
                 onClose(); // Automatically close the modal on successful login.
             }
         } else {
-            const registerError = onRegister(username, password);
+            const registerError = await onRegister(username, password);
             if (registerError) {
                 setError(registerError);
             } else {

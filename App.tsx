@@ -41,7 +41,7 @@ export default function App() {
 
     // `useAuth`: Encapsulates all logic related to user authentication and user-specific data.
     const {
-        currentUser, userData,
+        currentUser, userData, isAuthLoading,
         login, logout, register,
         toggleFavorite, setDramaStatus, togglePlanToWatch, setEpisodeReview
     } = useAuth(closeAuthModal); // Pass callback to close modal on successful login.
@@ -203,6 +203,15 @@ export default function App() {
                 return null;
         }
     };
+    
+    // In backend mode, show a loading spinner while validating the user's token.
+    if (isAuthLoading) {
+        return (
+            <div className="min-h-screen font-sans flex items-center justify-center bg-brand-primary">
+                 <div className="w-16 h-16 border-4 border-dashed rounded-full animate-spin border-brand-accent"></div>
+            </div>
+        );
+    }
 
 
     return (

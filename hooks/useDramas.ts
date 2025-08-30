@@ -6,6 +6,7 @@
  */
 import { useState, useEffect, useMemo } from 'react';
 import { Drama, Filters, SortPriority } from '../types';
+import { BACKEND_MODE, API_BASE_URL } from '../config';
 
 /**
  * A custom hook that serves as the single source of truth for drama data and its derived states.
@@ -21,13 +22,14 @@ export const useDramas = (filters: Filters, searchTerm: string, sortPriorities: 
     const [dataError, setDataError] = useState<string | null>(null);
     const [metadata, setMetadata] = useState<{ genres: string[]; tags: string[]; countries: string[]; cast: string[] }>({ genres: [], tags: [], countries: [], cast: [] });
 
-    // Effect to fetch and process the initial drama data from the JSON file.
+    // Effect to fetch and process the initial drama data from the JSON file or backend.
     // This runs only once when the hook is first mounted.
     useEffect(() => {
         const fetchDramas = async () => {
             try {
-                const response = await fetch('/data/dramas.json');
-                if (!response.ok) throw new Error("Failed to fetch drama data.");
+                const url = BACKEND_MODE ? `${API_BASE_URL}/dramas` : '/data/dramas.json';
+                const response = await fetch(url);
+                if (!response.ok) throw new Error(`Failed to fetch drama data from ${url}.`);
                 const data: Drama[] = await response.json();
                 
                 // A small artificial delay to show the loading spinner.

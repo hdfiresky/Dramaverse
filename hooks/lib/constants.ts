@@ -18,17 +18,27 @@ export const LOCAL_STORAGE_KEYS = {
     /** 
      * Key for storing the map of registered users and their (unencrypted) passwords.
      * Note: For a real application, passwords should never be stored this way. This is for demonstration purposes only.
+     * This is ONLY used in frontend-only mode.
      */
     USERS: 'dramaverse_users',
     /** 
      * Prefix for storing user-specific data. It's combined with the username to create a unique key
      * for each user's data (e.g., 'dramaverse_userdata_john').
+     * This is ONLY used in frontend-only mode.
      */
     USER_DATA_PREFIX: 'dramaverse_userdata_',
     /** Key for storing the user's last-used filter settings, allowing preferences to persist across sessions. */
     FILTERS: 'dramaverse_filters',
     /** Key for storing the user's last-used sort priority settings. */
     SORT_PRIORITIES: 'dramaverse_sort_priorities',
-    /** Key for storing the currently logged-in user's information (e.g., `{ "username": "john" }`). */
+    /** 
+     * Key for storing the currently logged-in user's information (e.g., `{ "username": "john" }`).
+     * This is ONLY used in frontend-only mode.
+     */
     LOGGED_IN_USER: 'dramaverse_loggedin_user',
+    /**
+     * Key for storing the JWT authentication token.
+     * This is ONLY used in backend mode.
+     */
+    AUTH_TOKEN: 'dramaverse_auth_token',
 };
