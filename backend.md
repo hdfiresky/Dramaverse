@@ -515,5 +515,72 @@ Without rate limiting, a malicious actor could spam your login endpoints or WebS
 
 ### Input Validation
 Always validate and sanitize any data received from a client before using it in database queries or broadcasting it to other clients. This helps prevent vulnerabilities like SQL injection or Cross-Site Scripting (XSS).
+
+## 8. Nginx Reverse Proxy Configuration (Production)
+
+In a production environment, you should not expose your Node.js server directly to the internet. Instead, use a battle-tested web server like Nginx as a **reverse proxy**. This allows you to handle SSL termination, serve static frontend files, and route API requests to your backend application, all from the same domain.
+
+The following configuration is designed for when your app is served from a sub-path (e.g., `https://example.com/dramaverse/`).
+
+### Example Nginx Server Block
+
+Add the following to your Nginx configuration (e.g., in `/etc/nginx/sites-available/default` or a new file).
+
+```nginx
+# Assumes your frontend build files are in /var/www/dramaverse/dist
+# and your domain is example.com
+
+server {
+    listen 80; # Or listen 443 ssl; for HTTPS
+    server_name example.com;
+
+    # Path to your frontend's built files (e.g., from 'npm run build')
+    root /var/www/dramaverse/dist;
+    index index.html;
+
+    # --- 1. Serve the frontend application from the sub-path ---
+    location /dramaverse/ {
+        # This is crucial for single-page applications (SPAs) like React.
+        # It tries to find a file at the requested URI. If not found,
+        # it falls back to serving index.html, letting client-side routing take over.
+        try_files $uri $uri/ /dramaverse/index.html;
+    }
+
+    # --- 2. Proxy API requests to the Node.js backend server ---
+    location /dramaverse/api/ {
+        # The trailing slash on proxy_pass is important here!
+        # It maps /dramaverse/api/dramas to http://localhost:3001/api/dramas
+        proxy_pass http://localhost:3001/api/; 
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # --- 3. Handle WebSocket connections for real-time updates ---
+    location /dramaverse/socket.io/ {
+        proxy_pass http://localhost:3001/socket.io/;
+        proxy_http_version 1.1;
+        
+        # These headers are required to upgrade the connection to a WebSocket
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+
+    # You would typically have other configurations here, such as:
+    # ssl_certificate /path/to/your/cert.pem;
+    # ssl_certificate_key /path/to/your/key.pem;
+    # access_log /var/log/nginx/dramaverse.access.log;
+    # error_log /var/log/nginx/dramaverse.error.log;
+}
 ```
 
+After saving your configuration, remember to test it and reload Nginx:
+```bash
+sudo nginx -t
+sudo systemctl reload nginx
+```
+With this setup, your frontend at `https://example.com/dramaverse/` will correctly send API requests to `/dramaverse/api/...`, which Nginx will route to your backend server running on port `3001`.
