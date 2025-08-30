@@ -13,7 +13,6 @@ This document provides a comprehensive guide to setting up and running the optio
     -   **Password Hashing**: `bcryptjs` to securely store user passwords.
 
 -   **Functionality**:
-    -   Serves the entire drama library from a database.
     -   Handles user registration and login.
     -   Provides authenticated endpoints for users to manage their data.
     -   **Real-Time Sync**: When a user makes a change on one device, the server instantly pushes the update to all of that user's other logged-in devices.
@@ -218,7 +217,7 @@ module.exports = (req, res, next) => {
 ```
 
 ### `server.js`
-This is the main server file that ties everything together. It has been updated to read the `JWT_SECRET` from environment variables, which is a best practice for production.
+This is the main server file that ties everything together. It has been updated to read the `JWT_SECRET` from environment variables, which is a best practice for production. **Note**: The `/api/dramas` endpoint has been removed, as the frontend will now fetch this data from a static JSON file for better performance.
 
 ```javascript
 const express = require('express');
@@ -304,15 +303,6 @@ async function emitUserDataUpdate(userId) {
         console.error(`Failed to emit user data for user ID ${userId}:`, error);
     }
 }
-
-// --- Drama Data Endpoints ---
-app.get('/api/dramas', (req, res) => {
-    db.all("SELECT * FROM dramas", [], (err, rows) => {
-        if (err) return res.status(500).json({ "error": err.message });
-        const dramas = rows.map(row => ({ url: row.url, title: row.title, ...JSON.parse(row.data) }));
-        res.json(dramas);
-    });
-});
 
 // --- Auth Endpoints ---
 app.post('/api/auth/register', (req, res) => {

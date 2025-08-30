@@ -141,12 +141,17 @@ export const useAuth = (onLoginSuccess?: () => void, openConflictModal?: (data: 
                 return "Could not connect to the server.";
             }
         } else {
-            if (!localUsers[username] || localUsers[username].password !== password) return "Invalid username or password.";
+            // Read directly from localStorage to prevent using a potentially stale state
+            // right after registration, which resolves the login issue.
+            const usersFromStorage = JSON.parse(window.localStorage.getItem(LOCAL_STORAGE_KEYS.USERS) || '{}');
+            if (!usersFromStorage[username] || usersFromStorage[username].password !== password) {
+                return "Invalid username or password.";
+            }
             setLocalLoggedInUser({ username });
             onLoginSuccess?.();
             return null;
         }
-    }, [setAuthToken, onLoginSuccess, localUsers, setLocalLoggedInUser]);
+    }, [setAuthToken, onLoginSuccess, setLocalLoggedInUser]);
 
     const logout = useCallback(() => {
         if (BACKEND_MODE) {

@@ -27,7 +27,9 @@ export const useDramas = (filters: Filters, searchTerm: string, sortPriorities: 
     useEffect(() => {
         const fetchDramas = async () => {
             try {
-                const url = BACKEND_MODE ? `${API_BASE_URL}/dramas` : '/data/dramas.json';
+                // Always fetch the static JSON file for better performance and to reduce server load,
+                // as the drama library is large and mostly static.
+                const url = '/data/dramas.json';
                 const response = await fetch(url);
                 if (!response.ok) throw new Error(`Failed to fetch drama data from ${url}.`);
                 const data: Drama[] = await response.json();
