@@ -16,11 +16,15 @@ export const BACKEND_MODE = false;
 /**
  * The base URL for the backend API.
  * This is only used when BACKEND_MODE is true.
+ * Using a relative path makes the app work correctly when served
+ * behind a reverse proxy (e.g., Nginx), especially in a sub-directory.
  */
-export const API_BASE_URL = 'http://localhost:3001/api';
+export const API_BASE_URL = 'api';
 
 /**
  * The URL for the backend WebSocket server.
  * This is only used when BACKEND_MODE is true.
+ * An empty string defaults to the current host, which is correct
+ * for a reverse proxy setup.
  */
-export const WEBSOCKET_URL = 'http://localhost:3001';
+export const WEBSOCKET_URL = '';
