@@ -6,7 +6,7 @@
  */
 import { useState, useEffect, useCallback } from 'react';
 import { useLocalStorage } from './useLocalStorage';
-import { User, UserData, UserDramaStatus, DramaStatus } from '../types';
+import { User, UserData, UserDramaStatus, DramaStatus, ConflictData } from '../types';
 import { LOCAL_STORAGE_KEYS } from './lib/constants';
 import { BACKEND_MODE, API_BASE_URL } from '../config';
 
@@ -15,9 +15,10 @@ const EMPTY_USER_DATA: UserData = { favorites: [], statuses: {}, reviews: {}, ep
 /**
  * A hook to manage the application's authentication state and user data.
  * @param {() => void} [onLoginSuccess] - An optional callback function to be executed upon a successful login.
+ * @param {(data: ConflictData) => void} [openConflictModal] - Callback to open the conflict resolution modal.
  * @returns An object containing the current user, user data, and functions to manage authentication and data.
  */
-export const useAuth = (onLoginSuccess?: () => void) => {
+export const useAuth = (onLoginSuccess?: () => void, openConflictModal?: (data: ConflictData) => void) => {
     // --- Common State ---
     const [currentUser, setCurrentUser] = useState<User | null>(null);
     const [userData, setUserData] = useState<UserData>(EMPTY_USER_DATA);
@@ -148,8 +149,17 @@ export const useAuth = (onLoginSuccess?: () => void) => {
                     },
                     body: JSON.stringify(body)
                 });
-                 if (!res.ok) {
-                    // The server responded with an error (e.g., 401, 500).
+                 if (res.status === 409) {
+                    // CONFLICT DETECTED!
+                    const conflictData = await res.json();
+                    openConflictModal?.({
+                        endpoint,
+                        clientPayload: body,
+                        serverVersion: conflictData.serverVersion
+                    });
+                    // Do not revert UI, let the user resolve it.
+                } else if (!res.ok) {
+                    // The server responded with a different error (e.g., 401, 500).
                     // This is not a network error, so the action failed permanently.
                     // We must revert the optimistic update.
                     console.error('API update failed with status:', res.status);
@@ -167,7 +177,7 @@ export const useAuth = (onLoginSuccess?: () => void) => {
             localStorage.setItem(`${LOCAL_STORAGE_KEYS.USER_DATA_PREFIX}${currentUser.username}`, JSON.stringify(newUserData));
         }
         return true;
-    }, [currentUser, authToken, userData]);
+    }, [currentUser, authToken, userData, openConflictModal]);
     
     const toggleFavorite = useCallback((dramaUrl: string) => {
         const isFavorite = userData.favorites.includes(dramaUrl);
@@ -206,9 +216,12 @@ export const useAuth = (onLoginSuccess?: () => void) => {
     }, [userData, setDramaStatus]);
 
     const setEpisodeReview = useCallback((dramaUrl: string, episodeNumber: number, text: string) => {
+        // Find the `updatedAt` of the current review to send to the server for conflict detection.
+        const clientUpdatedAt = userData.episodeReviews?.[dramaUrl]?.[episodeNumber]?.updatedAt || 0;
+        
         return authenticatedUpdate(
             '/user/reviews/episodes',
-            { dramaUrl, episodeNumber, text },
+            { dramaUrl, episodeNumber, text, clientUpdatedAt }, // Send clientUpdatedAt with the payload
             (currentData) => {
                 const newEpisodeReviews = JSON.parse(JSON.stringify(currentData.episodeReviews)); // Deep copy
                 if (!newEpisodeReviews[dramaUrl]) newEpisodeReviews[dramaUrl] = {};
@@ -223,7 +236,49 @@ export const useAuth = (onLoginSuccess?: () => void) => {
                 return { ...currentData, episodeReviews: newEpisodeReviews };
             }
         );
-    }, [authenticatedUpdate]);
+    }, [authenticatedUpdate, userData.episodeReviews]);
+
+    const resolveReviewConflict = useCallback(async (
+        clientPayload: { dramaUrl: string, episodeNumber: number, text: string },
+        serverVersion: { text: string, updatedAt: number },
+        resolution: 'client' | 'server'
+    ) => {
+        if (!currentUser) return;
+    
+        if (resolution === 'server') {
+            // Revert the optimistic update to match the server's state.
+            setUserData(currentData => {
+                const newEpisodeReviews = JSON.parse(JSON.stringify(currentData.episodeReviews));
+                if (!newEpisodeReviews[clientPayload.dramaUrl]) newEpisodeReviews[clientPayload.dramaUrl] = {};
+                newEpisodeReviews[clientPayload.dramaUrl][clientPayload.episodeNumber] = serverVersion;
+                
+                // Persist the reverted state to localStorage in frontend-only mode.
+                if (!BACKEND_MODE) {
+                    localStorage.setItem(`${LOCAL_STORAGE_KEYS.USER_DATA_PREFIX}${currentUser.username}`, JSON.stringify({ ...currentData, episodeReviews: newEpisodeReviews }));
+                }
+                return { ...currentData, episodeReviews: newEpisodeReviews };
+            });
+        } else { // resolution === 'client'
+            // Re-submit the user's version, but this time with a `force` flag to bypass the conflict check.
+            if (BACKEND_MODE) {
+                try {
+                    await fetch(`${API_BASE_URL}/user/reviews/episodes`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${authToken}`
+                        },
+                        body: JSON.stringify({ ...clientPayload, force: true })
+                    });
+                } catch (error) {
+                    // If this fails, the service worker will still pick it up.
+                    console.error("Forced update failed, will be retried by background sync:", error);
+                }
+            }
+            // In frontend-only mode, the optimistic update is already correct, so no action is needed.
+        }
+    }, [currentUser, authToken]);
+    
 
     return {
         currentUser,
@@ -236,5 +291,6 @@ export const useAuth = (onLoginSuccess?: () => void) => {
         setDramaStatus,
         togglePlanToWatch,
         setEpisodeReview,
+        resolveReviewConflict,
     };
 };

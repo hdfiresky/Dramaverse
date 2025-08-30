@@ -24,6 +24,8 @@ import { HomePage } from './components/HomePage';
 import { EpisodeReviewsModal } from './components/EpisodeReviewsModal';
 import { AllReviewsPage } from './components/AllReviewsPage';
 import { BottomNavBar } from './components/BottomNavBar';
+import { ConflictResolutionModal } from './components/ConflictResolutionModal';
+
 
 export default function App() {
     // --- STATE MANAGEMENT via Custom Hooks ---
@@ -37,14 +39,15 @@ export default function App() {
         isFilterSidebarOpen, toggleFilterSidebar,
         currentPage, setCurrentPage,
         theme, toggleTheme,
+        conflictData, openConflictModal, closeConflictModal,
     } = useUIState();
 
     // `useAuth`: Encapsulates all logic related to user authentication and user-specific data.
     const {
         currentUser, userData, isAuthLoading,
         login, logout, register,
-        toggleFavorite, setDramaStatus, togglePlanToWatch, setEpisodeReview
-    } = useAuth(closeAuthModal); // Pass callback to close modal on successful login.
+        toggleFavorite, setDramaStatus, togglePlanToWatch, setEpisodeReview, resolveReviewConflict
+    } = useAuth(closeAuthModal, openConflictModal); // Pass callbacks.
 
     // `useLocalStorage`: Persists filter and sort settings across browser sessions.
     const [filters, setFilters] = useLocalStorage<Filters>(LOCAL_STORAGE_KEYS.FILTERS, { genres: [], excludeGenres: [], tags: [], excludeTags: [], countries: [], cast: [], minRating: 0 });
@@ -242,6 +245,13 @@ export default function App() {
             </main>
 
             <AuthModal isOpen={isAuthModalOpen} onClose={closeAuthModal} onLogin={login} onRegister={register} />
+            
+            <ConflictResolutionModal 
+                isOpen={!!conflictData}
+                data={conflictData}
+                onClose={closeConflictModal}
+                onResolve={resolveReviewConflict}
+            />
 
             {activeModal?.type === 'drama' && (
                 <DramaDetailModal 

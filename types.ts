@@ -179,10 +179,20 @@ export interface SortPriority {
 }
 
 /**
+ * Represents the data needed to resolve a sync conflict.
+ */
+export interface ConflictData {
+  endpoint: string;
+  clientPayload: any; // The data the client tried to save
+  serverVersion: any; // The conflicting data from the server
+}
+
+/**
  * Represents an item in the modal navigation stack.
  * Used to manage the history of opened modals.
  */
 export type ModalStackItem = 
   { type: 'drama'; drama: Drama } | 
   { type: 'cast'; actorName: string } |
-  { type: 'reviews'; drama: Drama };
+  { type: 'reviews'; drama: Drama } |
+  { type: 'conflict'; data: ConflictData };

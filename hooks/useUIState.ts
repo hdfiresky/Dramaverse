@@ -5,7 +5,7 @@
  * from data-related logic (like `useDramas` or `useAuth`).
  */
 import { useState, useCallback, useEffect } from 'react';
-import { Drama, ModalStackItem } from '../types';
+import { Drama, ModalStackItem, ConflictData } from '../types';
 import { useLocalStorage } from './useLocalStorage';
 
 /**
@@ -23,6 +23,8 @@ export const useUIState = () => {
     const [isFilterSidebarOpen, setFilterSidebarOpen] = useState(false);
     /** The current page number for paginated views. */
     const [currentPage, setCurrentPage] = useState(1);
+    /** State to hold data for the conflict resolution modal. */
+    const [conflictData, setConflictData] = useState<ConflictData | null>(null);
 
     // --- Theme State Logic ---
     const getInitialTheme = useCallback(() => {
@@ -60,7 +62,7 @@ export const useUIState = () => {
 
     // Effect to lock body scroll when any modal is open.
     useEffect(() => {
-        const isModalOpen = modalStack.length > 0 || isAuthModalOpen;
+        const isModalOpen = modalStack.length > 0 || isAuthModalOpen || !!conflictData;
         if (isModalOpen) {
             document.body.classList.add('overflow-hidden');
         } else {
@@ -72,7 +74,7 @@ export const useUIState = () => {
         return () => {
             document.body.classList.remove('overflow-hidden');
         };
-    }, [modalStack, isAuthModalOpen]);
+    }, [modalStack, isAuthModalOpen, conflictData]);
 
 
     // All setter functions are wrapped in `useCallback` to ensure they have a stable identity
@@ -110,6 +112,11 @@ export const useUIState = () => {
         setFilterSidebarOpen(prev => isOpen === undefined ? !prev : isOpen);
     }, []);
 
+    /** Opens the conflict resolution modal with the necessary data. */
+    const openConflictModal = useCallback((data: ConflictData) => setConflictData(data), []);
+    /** Closes the conflict resolution modal. */
+    const closeConflictModal = useCallback(() => setConflictData(null), []);
+
     return {
         activeView,
         navigateTo,
@@ -126,5 +133,8 @@ export const useUIState = () => {
         setCurrentPage,
         theme,
         toggleTheme,
+        conflictData,
+        openConflictModal,
+        closeConflictModal,
     };
 };

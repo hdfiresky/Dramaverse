@@ -15,6 +15,7 @@ This document provides a comprehensive guide to setting up and running the optio
     -   Serves the entire drama library from a database.
     -   Handles user registration and login.
     -   Provides authenticated endpoints for users to manage their favorites, drama statuses, and episode reviews.
+    -   Includes logic for **conflict resolution** to support multi-device, offline-first usage.
 
 ## 2. Initial Setup
 
@@ -317,20 +318,40 @@ app.post('/api/user/statuses', authMiddleware, (req, res) => {
 });
 
 app.post('/api/user/reviews/episodes', authMiddleware, (req, res) => {
-    const { dramaUrl, episodeNumber, text } = req.body;
+    const { dramaUrl, episodeNumber, text, clientUpdatedAt, force } = req.body;
     const userId = req.user.id;
+    
     if (text.trim() === '') {
         db.run('DELETE FROM user_episode_reviews WHERE user_id = ? AND drama_url = ? AND episode_number = ?', [userId, dramaUrl, episodeNumber], (err) => {
              if (err) return res.status(500).json({ message: 'Database error' });
              res.status(200).json({ success: true });
         });
-    } else {
-        const updatedAt = Date.now();
-        db.run('INSERT OR REPLACE INTO user_episode_reviews (user_id, drama_url, episode_number, review_text, updated_at) VALUES (?, ?, ?, ?, ?)', [userId, dramaUrl, episodeNumber, text, updatedAt], (err) => {
-             if (err) return res.status(500).json({ message: 'Database error' });
-             res.status(200).json({ success: true });
-        });
+        return;
     }
+
+    db.get('SELECT updated_at, review_text FROM user_episode_reviews WHERE user_id = ? AND drama_url = ? AND episode_number = ?', [userId, dramaUrl, episodeNumber], (err, existingReview) => {
+        if (err) {
+            return res.status(500).json({ message: 'Database query failed.' });
+        }
+
+        // Conflict check: if the update is not forced, and a review exists, and the timestamps don't match.
+        if (!force && existingReview && existingReview.updated_at !== clientUpdatedAt) {
+            return res.status(409).json({
+                message: 'Conflict detected. The review has been updated on another device.',
+                serverVersion: {
+                    text: existingReview.review_text,
+                    updatedAt: existingReview.updated_at
+                }
+            });
+        }
+
+        // No conflict or force=true, proceed with the update.
+        const newUpdatedAt = Date.now();
+        db.run('INSERT OR REPLACE INTO user_episode_reviews (user_id, drama_url, episode_number, review_text, updated_at) VALUES (?, ?, ?, ?, ?)', [userId, dramaUrl, episodeNumber, text, newUpdatedAt], (err) => {
+             if (err) return res.status(500).json({ message: 'Database error' });
+             res.status(200).json({ success: true, newUpdatedAt });
+        });
+    });
 });
 
 
