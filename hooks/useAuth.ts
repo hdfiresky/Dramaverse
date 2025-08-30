@@ -34,6 +34,8 @@ export const useAuth = (onLoginSuccess?: () => void) => {
     useEffect(() => {
         const initialize = async () => {
             if (BACKEND_MODE) {
+                // On initial load in backend mode, we assume loading until session is validated.
+                setIsAuthLoading(true);
                 if (authToken) {
                     try {
                         const res = await fetch(`${API_BASE_URL}/user/data`, {
@@ -52,9 +54,12 @@ export const useAuth = (onLoginSuccess?: () => void) => {
                     } finally {
                         setIsAuthLoading(false);
                     }
+                } else {
+                     setIsAuthLoading(false);
                 }
             } else {
-                // Frontend-only mode logic
+                // Frontend-only mode logic is synchronous
+                setIsAuthLoading(false);
                 setCurrentUser(localLoggedInUser);
                 if (localLoggedInUser) {
                     const data = localStorage.getItem(`${LOCAL_STORAGE_KEYS.USER_DATA_PREFIX}${localLoggedInUser.username}`);
@@ -101,8 +106,7 @@ export const useAuth = (onLoginSuccess?: () => void) => {
                 const data = await res.json();
                 if (!res.ok) return data.message || "Login failed.";
                 setAuthToken(data.token);
-                setCurrentUser(data.user);
-                // User data will be fetched by the useEffect that watches authToken
+                // The useEffect watching authToken will handle fetching user data and setting the user.
                 onLoginSuccess?.();
                 return null;
             } catch (error) {
@@ -131,7 +135,8 @@ export const useAuth = (onLoginSuccess?: () => void) => {
         if (!currentUser) return false;
         
         const oldUserData = userData;
-        setUserData(updateFn); // Optimistic UI update
+        const newUserData = updateFn(oldUserData);
+        setUserData(newUserData); // Optimistic UI update
 
         if (BACKEND_MODE) {
             try {
@@ -143,14 +148,22 @@ export const useAuth = (onLoginSuccess?: () => void) => {
                     },
                     body: JSON.stringify(body)
                 });
-                if (!res.ok) throw new Error('API update failed');
+                 if (!res.ok) {
+                    // The server responded with an error (e.g., 401, 500).
+                    // This is not a network error, so the action failed permanently.
+                    // We must revert the optimistic update.
+                    console.error('API update failed with status:', res.status);
+                    setUserData(oldUserData);
+                }
+                // If res.ok is true, the update was successful, so the optimistic state is correct.
             } catch (error) {
-                console.error(`Failed to update ${endpoint}:`, error);
-                setUserData(oldUserData); // Rollback on failure
+                // The fetch itself failed. This is a network error (e.g., user is offline).
+                // The service worker's BackgroundSyncPlugin will queue this request.
+                // We DO NOT revert the optimistic UI update.
+                console.log('Network error detected. Request queued for background sync.', error);
             }
         } else {
-             // In frontend mode, persist the optimistically updated data
-            const newUserData = updateFn(userData);
+             // In frontend mode, persist the optimistically updated data to localStorage.
             localStorage.setItem(`${LOCAL_STORAGE_KEYS.USER_DATA_PREFIX}${currentUser.username}`, JSON.stringify(newUserData));
         }
         return true;

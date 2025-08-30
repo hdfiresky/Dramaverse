@@ -54,10 +54,8 @@ export default defineConfig({
         // Define runtime caching rules for assets and API calls.
         runtimeCaching: [
           {
-            // Cache drama data from the backend API.
-            // Strategy: StaleWhileRevalidate - Serve from cache first for speed,
-            // then fetch a fresh copy from the network in the background.
-            urlPattern: ({ url }) => url.pathname.startsWith('/api/dramas'),
+            // Cache drama data from the local JSON or backend API (GET requests).
+            urlPattern: ({ url }) => /\/data\/dramas\.json$/.test(url.pathname) || url.pathname.startsWith('/api/dramas'),
             handler: 'StaleWhileRevalidate',
             options: {
               cacheName: 'api-cache',
@@ -81,6 +79,23 @@ export default defineConfig({
               },
             },
           },
+          {
+            // Handle offline mutations for user data (POST requests).
+            // Strategy: NetworkOnly with Background Sync.
+            // This attempts to send the request to the network. If it fails (due to being offline),
+            // Workbox automatically adds it to a queue and retries when the network is available.
+            urlPattern: ({ url }) => url.pathname.startsWith('/api/user/'),
+            handler: 'NetworkOnly',
+            method: 'POST',
+            options: {
+              backgroundSync: {
+                name: 'dramaverse-mutation-queue',
+                options: {
+                  maxRetentionTime: 24 * 60 * 7, // Retry for up to 7 days
+                },
+              },
+            },
+          }
         ],
       },
     }),
