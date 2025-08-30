@@ -195,7 +195,7 @@ module.exports = (req, res, next) => {
 ```
 
 ### `server.js`
-This is the main server file that ties everything together. It now includes the Socket.IO server and logic for real-time broadcasts.
+This is the main server file that ties everything together. It now includes a secure CORS configuration for both Express and Socket.IO.
 
 ```javascript
 const express = require('express');
@@ -209,18 +209,36 @@ const authMiddleware = require('./authMiddleware.js');
 
 const app = express();
 const server = http.createServer(app);
+
+// --- Security: Configure a CORS Whitelist ---
+// In production, replace these with your actual frontend domain.
+const allowedOrigins = [
+    'http://localhost:5173', // Default for Vite dev server
+    'http://127.0.0.1:5173',
+    // 'https://your-production-frontend-domain.com'
+];
+
+const corsOptions = {
+    origin: function (origin, callback) {
+        // Allow requests with no origin (like mobile apps or curl requests)
+        if (!origin) return callback(null, true);
+        if (allowedOrigins.indexOf(origin) === -1) {
+            const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
+            return callback(new Error(msg), false);
+        }
+        return callback(null, true);
+    },
+};
+
 const io = new Server(server, {
-    cors: {
-        origin: "*", // Configure this for production
-        methods: ["GET", "POST"]
-    }
+    cors: corsOptions
 });
 
-app.use(cors());
+app.use(cors(corsOptions)); // Apply secure CORS to Express routes
 app.use(express.json());
 
 const PORT = 3001;
-const JWT_SECRET = 'your-super-secret-key-change-me';
+const JWT_SECRET = 'your-super-secret-key-change-me'; // IMPORTANT: See Security Best Practices below
 
 // --- Socket.IO Middleware for Auth ---
 io.use((socket, next) => {
@@ -240,7 +258,8 @@ io.use((socket, next) => {
 // --- Socket.IO Connection Handling ---
 io.on('connection', (socket) => {
     console.log(`Real-time client connected: ${socket.user.username} (ID: ${socket.user.id})`);
-    // Each user joins a private room. We broadcast updates to this room.
+    // Each user joins a private room based on their user ID. We broadcast updates to this room.
+    // This is a critical security measure to ensure users only receive their own data.
     socket.join(`user_${socket.user.id}`);
     
     socket.on('disconnect', () => {
@@ -394,4 +413,48 @@ Follow these steps in your terminal, from inside the `/backend` directory:
     ```bash
     npm run dev
     ```
-    Your backend server is now running on `http://localhost:3001`. You can now go to the frontend code, set `BACKEND_MODE` to `true`, and the application will connect to this server for both HTTP requests and real-time WebSocket communication.
+    Your backend server is now running on `http://localhost:3001`. You can now go to the frontend code, set `BACKEND_MODE` to `true` in `config.ts`, and the application will connect to this server for both HTTP requests and real-time WebSocket communication.
+
+## 6. Security Best Practices
+
+To move this backend from a development setup to a production environment, consider the following critical security enhancements.
+
+### CORS Configuration
+The provided `server.js` code has been updated to use a secure CORS whitelist. The default allows connections from `localhost:5173` for development.
+
+**Action Required for Production**: Before deploying, you **must** update the `allowedOrigins` array in `server.js` to include your frontend application's official domain name. Remove any `localhost` entries.
+
+```javascript
+// Example for production
+const allowedOrigins = [
+    'https://www.your-dramaverse-app.com',
+    'https://your-dramaverse-app.com'
+];
+```
+
+### Secret Keys
+The `JWT_SECRET` is used to sign and verify authentication tokens. A weak or exposed secret key can compromise all user accounts.
+
+**Action Required for Production**: The secret key should **never** be hardcoded in the source code. Use an environment variable instead.
+1.  Install the `dotenv` package: `npm install dotenv`
+2.  Create a `.env` file in your `/backend` directory:
+    ```
+    JWT_SECRET=your-long-random-super-secret-string
+    ```
+3.  Load it in `server.js`:
+    ```javascript
+    require('dotenv').config();
+    // ...
+    const JWT_SECRET = process.env.JWT_SECRET;
+    ```
+Ensure the `.env` file is added to your `.gitignore` file and is never committed to version control.
+
+### Rate Limiting
+Without rate limiting, a malicious actor could spam your login endpoints or WebSocket connection attempts, potentially leading to a Denial-of-Service (DoS) attack.
+
+**Recommendation**: Implement rate limiting on sensitive endpoints.
+-   For Express routes, a popular choice is `express-rate-limit`.
+-   For Socket.IO, you can use libraries like `socket.io-rate-limit` or implement custom middleware to limit connection attempts or events per user.
+
+### Input Validation
+If you add client-to-server WebSocket events in the future (where the client sends data to the server over the socket), **never trust the input**. Always validate and sanitize any data received from a client before using it in database queries or broadcasting it to other clients. This helps prevent vulnerabilities like SQL injection or Cross-Site Scripting (XSS).

@@ -2,5 +2,5 @@
   "name": "Dramaverse",
   "description": "An advanced drama finder application that allows users to explore, filter, sort, and manage a vast library of dramas. Features include local user accounts, personalized watchlists, ratings, and an intelligent similarity-based recommendation system.",
   "requestFramePermissions": [],
-  "prompt": "I want realtime update of fav wish and all reviews and user edit if user is online"
+  "prompt": "is socket safe in backend find and fix any or all loopholes "
 }
