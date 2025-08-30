@@ -58,20 +58,16 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onLogin, 
             const loginError = await onLogin(username, password);
             if (loginError) {
                 setError(loginError);
-            } else {
-                onClose(); // Automatically close the modal on successful login.
             }
+            // No 'else' block needed, onLoginSuccess (which is closeAuthModal) is called from the useAuth hook.
         } else {
             const registerError = await onRegister(username, password);
             if (registerError) {
                 setError(registerError);
-            } else {
-                // On successful registration, show a success message and switch to the login form
-                // to prompt the user to log in with their new credentials.
-                setSuccess('Registration successful! Please log in.');
-                setIsLogin(true);
-                setPassword(''); // Clear password field for security.
             }
+            // No 'else' block is needed. If registration is successful, the useAuth hook
+            // will automatically log the user in and the onLoginSuccess callback will close the modal.
+            // The old flow of showing a success message and switching forms is no longer necessary.
         }
     };
 

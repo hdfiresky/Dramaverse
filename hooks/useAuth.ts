@@ -112,6 +112,13 @@ export const useAuth = (onLoginSuccess?: () => void, openConflictModal?: (data: 
                 });
                 const data = await res.json();
                 if (!res.ok) return data.message || "Registration failed.";
+
+                // Automatically log in the user upon successful registration.
+                if (data.token) {
+                    setAuthToken(data.token);
+                    // The useEffect hook will now fetch user data, and this callback will close the modal.
+                    onLoginSuccess?.(); 
+                }
                 return null;
             } catch (error) {
                 return "Could not connect to the server.";
@@ -121,7 +128,7 @@ export const useAuth = (onLoginSuccess?: () => void, openConflictModal?: (data: 
             setLocalUsers({ ...localUsers, [username]: { password } });
             return null;
         }
-    }, [localUsers, setLocalUsers]);
+    }, [localUsers, setLocalUsers, onLoginSuccess, setAuthToken]);
 
     const login = useCallback(async (username: string, password: string): Promise<string | null> => {
         if (BACKEND_MODE) {
