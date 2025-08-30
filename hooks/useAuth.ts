@@ -5,10 +5,11 @@
  * and communicates with a backend server in backend mode.
  */
 import { useState, useEffect, useCallback } from 'react';
+import { io, Socket } from 'socket.io-client';
 import { useLocalStorage } from './useLocalStorage';
 import { User, UserData, UserDramaStatus, DramaStatus, ConflictData } from '../types';
 import { LOCAL_STORAGE_KEYS } from './lib/constants';
-import { BACKEND_MODE, API_BASE_URL } from '../config';
+import { BACKEND_MODE, API_BASE_URL, WEBSOCKET_URL } from '../config';
 
 const EMPTY_USER_DATA: UserData = { favorites: [], statuses: {}, reviews: {}, episodeReviews: {} };
 
@@ -72,6 +73,32 @@ export const useAuth = (onLoginSuccess?: () => void, openConflictModal?: (data: 
         };
         initialize();
     }, [authToken, localLoggedInUser, setAuthToken]);
+
+    // Effect to manage the real-time WebSocket connection.
+    useEffect(() => {
+        // Only connect if in backend mode, user is logged in (has token), and online.
+        if (BACKEND_MODE && authToken && navigator.onLine) {
+            const newSocket: Socket = io(WEBSOCKET_URL, {
+                auth: { token: authToken }
+            });
+
+            newSocket.on('connect', () => console.log('Connected to real-time server.'));
+            newSocket.on('disconnect', () => console.log('Disconnected from real-time server.'));
+
+            // The server will emit this event with the full, updated user data object.
+            // This ensures the client state is always in sync with the database.
+            newSocket.on('user_data_updated', (newUserData: UserData) => {
+                console.log('Real-time data update received from server.');
+                setUserData(newUserData);
+            });
+
+            // Cleanup function: disconnects the socket when the token changes (logout) or the component unmounts.
+            return () => {
+                newSocket.disconnect();
+            };
+        }
+    }, [authToken]);
+
 
     const register = useCallback(async (username: string, password: string): Promise<string | null> => {
         if (!username || !password) return "Username and password cannot be empty.";
@@ -166,6 +193,7 @@ export const useAuth = (onLoginSuccess?: () => void, openConflictModal?: (data: 
                     setUserData(oldUserData);
                 }
                 // If res.ok is true, the update was successful, so the optimistic state is correct.
+                // The backend will emit a WebSocket event to update other clients.
             } catch (error) {
                 // The fetch itself failed. This is a network error (e.g., user is offline).
                 // The service worker's BackgroundSyncPlugin will queue this request.

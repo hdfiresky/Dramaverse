@@ -18,3 +18,9 @@ export const BACKEND_MODE = false;
  * This is only used when BACKEND_MODE is true.
  */
 export const API_BASE_URL = 'http://localhost:3001/api';
+
+/**
+ * The URL for the backend WebSocket server.
+ * This is only used when BACKEND_MODE is true.
+ */
+export const WEBSOCKET_URL = 'http://localhost:3001';
