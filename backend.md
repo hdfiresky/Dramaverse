@@ -51,6 +51,11 @@ This document provides a comprehensive guide to setting up and running the optio
     # The port the server will run on
     PORT=3001
 
+    # A comma-separated list of allowed origins for CORS.
+    # No spaces around the comma.
+    # For production, this should be your frontend's domain (e.g., "https://your-app-domain.com").
+    CORS_ALLOWED_ORIGINS="http://localhost:5173,http://127.0.0.1:5173"
+
     # A long, random, and secret string for signing JWTs
     # IMPORTANT: Change this to your own unique secret!
     JWT_SECRET="replace-this-with-a-very-long-and-random-string"
@@ -129,6 +134,17 @@ if (!JWT_SECRET || JWT_SECRET === "replace-this-with-a-very-long-and-random-stri
     console.error("FATAL ERROR: JWT_SECRET is not set or is set to the default value in the .env file.");
     console.error("Please set it to a long, random, and unique string for security.");
     process.exit(1);
+}
+
+// CORS Configuration from environment variable
+const CORS_ALLOWED_ORIGINS = process.env.CORS_ALLOWED_ORIGINS;
+let allowedOrigins = ['http://localhost:5173', 'http://127.0.0.1:5173']; // Default for development
+
+if (CORS_ALLOWED_ORIGINS) {
+    allowedOrigins = CORS_ALLOWED_ORIGINS.split(',').map(origin => origin.trim());
+    console.log('CORS is configured to allow origins:', allowedOrigins);
+} else {
+    console.warn('WARN: CORS_ALLOWED_ORIGINS is not set in the .env file. Using default development origins.');
 }
 
 // --- DATABASE MIGRATIONS ---
@@ -222,11 +238,13 @@ const server = http.createServer(app);
 
 // --- SECURITY MIDDLEWARE ---
 app.use(helmet());
-const allowedOrigins = ['http://localhost:5173', 'http://127.0.0.1:5173'];
 const corsOptions = {
     origin: (origin, callback) => {
-        if (!origin || allowedOrigins.includes(origin)) callback(null, true);
-        else callback(new Error('Not allowed by CORS'));
+        if (!origin || allowedOrigins.includes(origin)) {
+            callback(null, true);
+        } else {
+            callback(new Error('Not allowed by CORS'));
+        }
     },
     methods: ['GET', 'POST', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
@@ -256,9 +274,18 @@ const authMiddleware = (req, res, next) => {
 
 io.use((socket, next) => {
     const token = socket.handshake.auth.token;
-    if (!token) return next(new Error('Authentication error: Token not provided'));
+    console.log(`Socket connection attempt with token: ${!!token}`);
+
+    if (!token) {
+        console.error("Socket Auth Error: No token provided.");
+        return next(new Error('auth_error_no_token'));
+    }
+
     jwt.verify(token, JWT_SECRET, (err, decoded) => {
-        if (err) return next(new Error('Authentication error: Invalid token'));
+        if (err) {
+            console.error("Socket Auth Error: Invalid token.", err.message);
+            return next(new Error('auth_error_invalid_token'));
+        }
         socket.user = decoded;
         next();
     });
@@ -268,7 +295,16 @@ io.use((socket, next) => {
 io.on('connection', (socket) => {
     console.log(`Real-time client connected: ${socket.user.username} (ID: ${socket.user.id})`);
     socket.join(`user_${socket.user.id}`);
-    socket.on('disconnect', () => console.log(`Real-time client disconnected: ${socket.user.username}`));
+    
+    socket.emit('authenticated');
+
+    socket.on('disconnect', (reason) => {
+        console.log(`Real-time client disconnected: ${socket.user.username}. Reason: ${reason}`);
+    });
+
+    socket.on('error', (err) => {
+        console.error(`Socket error for user ${socket.user.username}:`, err.message);
+    });
 });
 
 async function fetchUserData(userId) {
@@ -333,6 +369,10 @@ app.post('/api/auth/login', authLimiter, (req, res) => {
         const token = jwt.sign({ id: user.id, username: user.username }, JWT_SECRET, { expiresIn: '24h' });
         res.json({ user: { username: user.username }, token });
     });
+});
+
+app.get('/api/health', (req, res) => {
+    res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
 app.get('/api/user/data', authMiddleware, async (req, res) => {
@@ -402,6 +442,13 @@ app.post('/api/user/reviews/episodes', authMiddleware, (req, res) => {
              res.status(200).json({ success: true, newUpdatedAt });
         });
     });
+});
+
+// --- GLOBAL ERROR HANDLER ---
+// This should be the last middleware
+app.use((err, req, res, next) => {
+    console.error("An unexpected error occurred:", err.stack);
+    res.status(500).json({ message: 'Something broke! A server error occurred.' });
 });
 
 // --- SERVER START & GRACEFUL SHUTDOWN ---
@@ -478,6 +525,6 @@ For production, it is highly recommended to use a process manager like PM2 and t
 ## 7. Security & Nginx
 
 The security best practices and Nginx reverse proxy configurations from the previous guide are still highly recommended and can be used without any changes. Remember to:
--   Update the `allowedOrigins` array in `server.js` for your production domain.
+-   Update the `CORS_ALLOWED_ORIGINS` variable in your `.env` file for your production domain.
 -   Use a strong, secret `JWT_SECRET` set via an environment variable.
 -   Run your Node.js application behind a reverse proxy like Nginx in production.
