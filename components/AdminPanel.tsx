@@ -3,12 +3,14 @@
  * This view is only accessible to users with administrative privileges.
  */
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import ReactDOM from 'react-dom';
 import { AdminUserView, UserData, Drama, DramaStatus, User } from '../types';
 import { 
     ChevronRightIcon, EyeIcon, BookmarkIcon, CheckCircleIcon, PauseIcon, XCircleIcon, 
     UserIcon, FilmIcon, ChatBubbleOvalLeftEllipsisIcon, SearchIcon, InformationCircleIcon,
-    UserPlusIcon, UserMinusIcon, BanIcon, CheckBadgeIcon, KeyIcon, TrashIcon, EllipsisVerticalIcon,
-    ChartBarIcon
+    UserPlusIcon, UserMinusIcon, BanIcon, CheckBadgeIcon, KeyIcon, TrashIcon, CloseIcon,
+    ChartBarIcon,
+    Cog6ToothIcon
 } from './Icons';
 import {
     fetchAllUsers,
@@ -20,11 +22,6 @@ import {
     fetchAllUserDataForAdmin,
     fetchRegistrationStats
 } from '../hooks/lib/adminApi';
-
-interface AdminPanelProps {
-    allDramas: Drama[];
-    currentUser: User | null;
-}
 
 // --- SUB-COMPONENTS ---
 
@@ -247,6 +244,71 @@ const AdvancedStats: React.FC<{
 };
 
 
+interface UserManagementModalProps {
+    user: AdminUserView;
+    currentUser: User | null;
+    onClose: () => void;
+    onToggleAdmin: () => void;
+    onToggleBan: () => void;
+    onResetPassword: () => void;
+    onDeleteUser: () => void;
+}
+
+const UserManagementModal: React.FC<UserManagementModalProps> = ({ user, currentUser, onClose, onToggleAdmin, onToggleBan, onResetPassword, onDeleteUser }) => {
+    return ReactDOM.createPortal(
+        <div className="fixed inset-0 bg-black/70 z-50 flex justify-center items-center p-4 animate-fade-in" onClick={onClose}>
+            <div className="bg-brand-secondary rounded-lg w-full max-w-md" onClick={e => e.stopPropagation()}>
+                <div className="p-4 flex justify-between items-center border-b border-slate-700">
+                    <h3 className="text-lg font-bold">Manage User: <span className="text-brand-accent">{user.username}</span></h3>
+                    <button onClick={onClose} className="p-1 rounded-full hover:bg-brand-primary"><CloseIcon className="w-5 h-5" /></button>
+                </div>
+                <div className="p-6 space-y-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                         <button onClick={onToggleAdmin} disabled={currentUser?.username === user.username} className="w-full text-left p-3 hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center gap-3 rounded-md disabled:opacity-50 disabled:cursor-not-allowed">
+                            {user.isAdmin ? <UserMinusIcon className="w-5 h-5 text-purple-400" /> : <UserPlusIcon className="w-5 h-5 text-purple-400" />}
+                            <div>
+                                <p className="font-semibold">{user.isAdmin ? 'Demote Admin' : 'Promote to Admin'}</p>
+                                <p className="text-xs text-slate-400">Toggle administrator role.</p>
+                            </div>
+                        </button>
+                         <button onClick={onToggleBan} className="w-full text-left p-3 hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center gap-3 rounded-md">
+                            {user.is_banned ? <CheckBadgeIcon className="w-5 h-5 text-green-400" /> : <BanIcon className="w-5 h-5 text-yellow-400" />}
+                            <div>
+                                <p className="font-semibold">{user.is_banned ? 'Unban User' : 'Ban User'}</p>
+                                <p className="text-xs text-slate-400">Toggle user access.</p>
+                            </div>
+                        </button>
+                    </div>
+                    <div>
+                        <h4 className="text-sm font-semibold text-slate-400 mb-2 mt-4">Sensitive Actions</h4>
+                         <button onClick={onResetPassword} className="w-full text-left p-3 hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center gap-3 rounded-md">
+                            <KeyIcon className="w-5 h-5 text-indigo-400" />
+                            <div>
+                                <p className="font-semibold">Reset Password</p>
+                                <p className="text-xs text-slate-400">Generate a new temporary password.</p>
+                            </div>
+                        </button>
+                        <button onClick={onDeleteUser} disabled={currentUser?.username === user.username} className="w-full text-left p-3 hover:bg-red-100 dark:hover:bg-red-900/50 flex items-center gap-3 rounded-md text-red-600 dark:text-red-400 disabled:opacity-50 disabled:cursor-not-allowed mt-2">
+                            <TrashIcon className="w-5 h-5" />
+                            <div>
+                                <p className="font-semibold">Delete User</p>
+                                <p className="text-xs text-red-500 dark:text-red-400/80">Permanently remove this user.</p>
+                            </div>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>,
+        document.getElementById('modal-root')!
+    );
+};
+
+// Fix: Define the missing AdminPanelProps interface.
+interface AdminPanelProps {
+    allDramas: Drama[];
+    currentUser: User | null;
+}
+
 /**
  * Main component for the Admin Panel.
  */
@@ -255,13 +317,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ allDramas, currentUser }
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [expandedUser, setExpandedUser] = useState<{ id: number, data: UserData } | null>(null);
+    const [managingUser, setManagingUser] = useState<AdminUserView | null>(null);
     const [searchTerm, setSearchTerm] = useState('');
     const [allUserData, setAllUserData] = useState<Record<string, UserData>>({});
     const [registrationStats, setRegistrationStats] = useState<{date: string, count: number}[]>([]);
     const [isStatsLoading, setIsStatsLoading] = useState(true);
-    const [openActionMenu, setOpenActionMenu] = useState<number | null>(null);
-    const menuRef = useRef<HTMLDivElement>(null);
-
 
     const fetchUsersCb = useCallback(async () => {
         setIsLoading(true);
@@ -275,17 +335,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ allDramas, currentUser }
             setIsLoading(false);
         }
     }, []);
-    
-     useEffect(() => {
-        const handleClickOutside = (event: MouseEvent) => {
-            if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
-                setOpenActionMenu(null);
-            }
-        };
-        document.addEventListener('mousedown', handleClickOutside);
-        return () => document.removeEventListener('mousedown', handleClickOutside);
-    }, []);
-
 
     useEffect(() => {
         fetchUsersCb();
@@ -308,54 +357,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ allDramas, currentUser }
         fetchStatsData();
     }, [fetchUsersCb]);
 
-    const handleAction = async (action: () => Promise<any>) => {
-        setOpenActionMenu(null);
+    const handleAction = async (action: () => Promise<any>, successCallback?: () => void) => {
+        setManagingUser(null);
         try {
             await action();
+            successCallback?.();
         } catch (err) {
             alert(`Error: ${err instanceof Error ? err.message : 'Unknown error'}`);
         }
     };
 
-    const handleToggleAdmin = (user: AdminUserView) => {
-        const action = user.isAdmin ? 'demote' : 'promote';
-        if (window.confirm(`Are you sure you want to ${action} ${user.username} ${user.isAdmin ? 'from' : 'to'} an admin?`)) {
-            handleAction(async () => {
-                await toggleUserAdminStatus(user.id, !user.isAdmin);
-                await fetchUsersCb();
-            });
-        }
-    };
-    
-    const handleToggleBan = (userId: number, currentBanStatus: boolean) => {
-        if (window.confirm(`Are you sure you want to ${currentBanStatus ? 'unban' : 'ban'} this user?`)) {
-            handleAction(async () => {
-                await toggleUserBan(userId, !currentBanStatus);
-                setUsers(prev => prev.map(u => u.id === userId ? { ...u, is_banned: !currentBanStatus } : u));
-            });
-        }
-    };
-
-    const handleDeleteUser = (userId: number, username: string) => {
-        if (window.confirm(`Are you sure you want to PERMANENTLY DELETE user '${username}'? This cannot be undone.`)) {
-            handleAction(async () => {
-                await deleteUser(userId);
-                setUsers(prev => prev.filter(u => u.id !== userId));
-            });
-        }
-    };
-    
-    const handleResetPassword = (userId: number) => {
-        if (window.confirm('Are you sure you want to reset this user\'s password?')) {
-            handleAction(async () => {
-                const { newPassword } = await resetUserPassword(userId);
-                alert(`Password has been reset. The new temporary password is: ${newPassword}`);
-            });
-        }
-    };
-
     const handleToggleDetails = async (userId: number) => {
-        setOpenActionMenu(null);
         if (expandedUser?.id === userId) {
             setExpandedUser(null);
             return;
@@ -391,7 +403,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ allDramas, currentUser }
             
             <DashboardStats stats={dashboardStats} />
             
-            <div className="bg-brand-secondary shadow-lg rounded-lg overflow-hidden">
+            <div className="bg-brand-secondary shadow-lg rounded-lg">
                 <div className="p-4 border-b border-slate-700">
                     <div className="relative">
                         <span className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">
@@ -407,62 +419,82 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ allDramas, currentUser }
                     </div>
                 </div>
                  {isLoading ? <div className="text-center p-8">Loading users...</div> : (
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-sm text-left text-brand-text-secondary">
-                            <thead className="text-xs uppercase bg-brand-primary/50">
-                                <tr>
-                                    <th scope="col" className="px-6 py-3">Username</th>
-                                    <th scope="col" className="px-6 py-3">Status</th>
-                                    <th scope="col" className="px-6 py-3">Role</th>
-                                    <th scope="col" className="px-6 py-3 text-right">Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {filteredUsers.map(user => (
-                                    <React.Fragment key={user.id}>
-                                        <tr className="border-b border-slate-700 hover:bg-brand-primary">
-                                            <td className="px-6 py-4 font-medium text-brand-text-primary whitespace-nowrap">{user.username}</td>
-                                            <td className="px-6 py-4">
-                                                <span className={`px-2 py-1 text-xs font-semibold rounded-full ${user.is_banned ? 'bg-red-500/20 text-red-300' : 'bg-green-500/20 text-green-300'}`}>
-                                                    {user.is_banned ? 'Banned' : 'Active'}
-                                                </span>
-                                            </td>
-                                             <td className="px-6 py-4">
-                                                <span className={`px-2 py-1 text-xs font-semibold rounded-full ${user.isAdmin ? 'bg-yellow-500/20 text-yellow-300' : 'bg-slate-500/20 text-slate-300'}`}>
-                                                    {user.isAdmin ? 'Admin' : 'User'}
-                                                </span>
-                                            </td>
-                                            <td className="px-6 py-4 text-right relative">
-                                                <button onClick={() => setOpenActionMenu(openActionMenu === user.id ? null : user.id)} className="p-2 rounded-full hover:bg-slate-700" aria-label="Open actions menu">
-                                                    <EllipsisVerticalIcon className="w-5 h-5" />
-                                                </button>
-                                                {openActionMenu === user.id && (
-                                                    <div ref={menuRef} className="absolute right-12 top-2 z-10 w-48 bg-brand-secondary border border-slate-600 rounded-md shadow-lg py-1">
-                                                        <button onClick={() => handleToggleDetails(user.id)} className="w-full text-left px-4 py-2 hover:bg-slate-700 flex items-center gap-2"><InformationCircleIcon className="w-4 h-4 text-sky-400" /> Details</button>
-                                                        {currentUser?.username !== user.username && <button onClick={() => handleToggleAdmin(user)} className="w-full text-left px-4 py-2 hover:bg-slate-700 flex items-center gap-2"><UserPlusIcon className="w-4 h-4 text-purple-400" /> {user.isAdmin ? 'Demote' : 'Promote'}</button>}
-                                                        <button onClick={() => handleToggleBan(user.id, user.is_banned)} className="w-full text-left px-4 py-2 hover:bg-slate-700 flex items-center gap-2"><BanIcon className="w-4 h-4 text-yellow-400" /> {user.is_banned ? 'Unban' : 'Ban'}</button>
-                                                        <button onClick={() => handleResetPassword(user.id)} className="w-full text-left px-4 py-2 hover:bg-slate-700 flex items-center gap-2"><KeyIcon className="w-4 h-4 text-indigo-400" /> Reset Password</button>
-                                                        {currentUser?.username !== user.username && <><div className="my-1 h-px bg-slate-600"></div><button onClick={() => handleDeleteUser(user.id, user.username)} className="w-full text-left px-4 py-2 hover:bg-slate-700 flex items-center gap-2 text-red-400"><TrashIcon className="w-4 h-4" /> Delete User</button></>}
-                                                    </div>
-                                                )}
-                                            </td>
-                                        </tr>
-                                        {expandedUser?.id === user.id && (
-                                            <tr>
-                                                <td colSpan={4} className="p-0">
-                                                    <UserDetailView userData={expandedUser.data} allDramas={allDramas} />
-                                                </td>
-                                            </tr>
-                                        )}
-                                    </React.Fragment>
-                                ))}
-                            </tbody>
-                        </table>
+                    <div className="divide-y divide-slate-700">
+                        {filteredUsers.map(user => (
+                            <div key={user.id}>
+                                <div 
+                                    className="p-3 flex items-center justify-between gap-3 cursor-pointer hover:bg-slate-800/50 transition-colors"
+                                    onClick={() => handleToggleDetails(user.id)}
+                                    role="button"
+                                    aria-expanded={expandedUser?.id === user.id}
+                                >
+                                    <div className="flex-1 min-w-0">
+                                        <p className="font-medium text-brand-text-primary truncate">{user.username}</p>
+                                        <div className="flex items-center gap-2 mt-1">
+                                            <span className={`px-2 py-0.5 text-xs font-semibold rounded-full ${user.is_banned ? 'bg-red-500/20 text-red-300' : 'bg-green-500/20 text-green-300'}`}>
+                                                {user.is_banned ? 'Banned' : 'Active'}
+                                            </span>
+                                            <span className={`px-2 py-0.5 text-xs font-semibold rounded-full ${user.isAdmin ? 'bg-yellow-500/20 text-yellow-300' : 'bg-slate-500/20 text-slate-300'}`}>
+                                                {user.isAdmin ? 'Admin' : 'User'}
+                                            </span>
+                                        </div>
+                                    </div>
+                                    <div className="flex items-center gap-2 flex-shrink-0">
+                                        <button 
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                setManagingUser(user);
+                                            }}
+                                            className="p-2 text-slate-400 hover:text-white hover:bg-slate-700 rounded-full transition-colors"
+                                            title={`Manage ${user.username}`}
+                                            aria-label={`Manage ${user.username}`}
+                                        >
+                                            <Cog6ToothIcon className="w-5 h-5" />
+                                        </button>
+                                    </div>
+                                </div>
+                                {expandedUser?.id === user.id && (
+                                    <UserDetailView userData={expandedUser.data} allDramas={allDramas} />
+                                )}
+                            </div>
+                        ))}
                     </div>
                  )}
             </div>
 
             <AdvancedStats dramas={allDramas} allUserData={allUserData} registrationStats={registrationStats} isLoading={isStatsLoading} />
+
+            {managingUser && (
+                <UserManagementModal 
+                    user={managingUser}
+                    currentUser={currentUser}
+                    onClose={() => setManagingUser(null)}
+                    onToggleAdmin={() => {
+                        const action = managingUser.isAdmin ? 'demote' : 'promote';
+                        if (window.confirm(`Are you sure you want to ${action} ${managingUser.username}?`)) {
+                            handleAction(() => toggleUserAdminStatus(managingUser.id, !managingUser.isAdmin), fetchUsersCb);
+                        }
+                    }}
+                    onToggleBan={() => {
+                         if (window.confirm(`Are you sure you want to ${managingUser.is_banned ? 'unban' : 'ban'} this user?`)) {
+                            handleAction(() => toggleUserBan(managingUser.id, !managingUser.is_banned), fetchUsersCb);
+                        }
+                    }}
+                    onResetPassword={() => {
+                         if (window.confirm('Are you sure you want to reset this user\'s password?')) {
+                            handleAction(async () => {
+                                const { newPassword } = await resetUserPassword(managingUser.id);
+                                alert(`Password for ${managingUser.username} has been reset. The new temporary password is: ${newPassword}`);
+                            });
+                        }
+                    }}
+                    onDeleteUser={() => {
+                         if (window.confirm(`Are you sure you want to PERMANENTLY DELETE user '${managingUser.username}'? This cannot be undone.`)) {
+                           handleAction(() => deleteUser(managingUser.id), fetchUsersCb);
+                        }
+                    }}
+                />
+            )}
         </div>
     );
 };
