@@ -255,32 +255,43 @@ export const useAuth = (onLoginSuccess?: () => void, openConflictModal?: (data: 
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ username, password }),
+                    credentials: 'include', // Important for register to set cookie
                 });
-                const data = await res.json();
-                if (!res.ok) return data.message || "Registration failed.";
+                const responseData = await res.json();
+                if (!res.ok) return responseData.message || "Registration failed.";
 
-                // After successful registration, immediately log in to get user data and set the cookie.
-                return await login(username, password);
+                // The backend now returns the full user payload on successful registration.
+                // We can use this directly to set the state without a second API call.
+                const { user, data } = responseData;
+
+                setCurrentUser(user);
+                setUserData(data);
+                
+                onLoginSuccess?.();
+                return null;
             } catch (error) {
                 return "Could not connect to the server.";
             }
         } else {
             if (localUsers[username]) return "Username already exists.";
             
-            // The default 'admin' account is now seeded. New user registrations are never admins by default.
             const newUser: LocalStoredUser = {
-                id: Date.now(), // Simple unique ID
+                id: Date.now(),
                 password: password,
                 isAdmin: false,
                 is_banned: false,
             };
 
-            setLocalUsers({ ...localUsers, [username]: newUser });
-
-            // Automatically log the new user in, which will set the correct session state
-            return await login(username, password);
+            const updatedUsers = { ...localUsers, [username]: newUser };
+            setLocalUsers(updatedUsers);
+            
+            // Replicate login logic directly to avoid stale state issues.
+            setLocalLoggedInUser({ username, isAdmin: false });
+            setUserData(EMPTY_USER_DATA);
+            onLoginSuccess?.();
+            return null;
         }
-    }, [localUsers, setLocalUsers, login]);
+    }, [localUsers, setLocalUsers, onLoginSuccess, setLocalLoggedInUser]);
 
     const logout = useCallback(async () => {
         if (BACKEND_MODE) {

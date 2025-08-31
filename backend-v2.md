@@ -1,4 +1,5 @@
 
+
 # Dramaverse Backend Setup Guide (v2 - MySQL)
 
 This document provides a comprehensive guide to setting up and running the optional backend server for the Dramaverse application using **MySQL and Docker**. This version is designed for scalability, persistence, and real-time, multi-device data synchronization.
@@ -461,16 +462,41 @@ app.use('/api/auth', authLimiter);
 app.post('/api/auth/register', async (req, res) => {
     try {
         const { username, password } = req.body;
-        const usernameRegex = /^[a-zA-Z0-9_.-]{3,20}$/;
-        if (!usernameRegex.test(username) || password.length < 6) { 
-            return res.status(400).json({ message: "Invalid input." }); 
+        // More permissive regex to allow email-like usernames.
+        const usernameRegex = /^[a-zA-Z0-9_.\-@+]{3,50}$/;
+        if (!usernameRegex.test(username) || !password || password.length < 6) {
+            return res.status(400).json({ message: "Invalid input. Username must be 3-50 characters. Password must be at least 6 characters." });
         }
         const hashedPassword = bcrypt.hashSync(password, 8);
-        await db.execute('INSERT INTO users (username, password) VALUES (?, ?)', [username, hashedPassword]);
-        res.status(201).json({ message: "User created successfully" });
+        
+        // Insert the new user
+        const [result] = await db.execute('INSERT INTO users (username, password) VALUES (?, ?)', [username, hashedPassword]);
+        const newUserId = result.insertId;
+
+        // Fetch the newly created user to get all details
+        const [rows] = await db.query('SELECT * FROM users WHERE id = ?', [newUserId]);
+        const user = rows[0];
+
+        if (!user) {
+            return res.status(500).json({ message: "Failed to create and retrieve user." });
+        }
+
+        // Automatically log the user in by creating a session
+        const token = jwt.sign({ id: user.id, username: user.username, isAdmin: !!user.is_admin }, JWT_SECRET, { expiresIn: '24h' });
+        res.cookie('token', token, { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'strict', maxAge: 24 * 60 * 60 * 1000 });
+        
+        // Respond with the complete user payload (user object and initial data)
+        // to streamline the frontend logic and avoid a second API call.
+        res.status(201).json({ 
+            user: { username: user.username, isAdmin: !!user.is_admin },
+            data: { favorites: [], statuses: {}, reviews: {}, episodeReviews: {} } // A new user has empty data
+        });
     } catch (err) {
-        if (err.code === 'ER_DUP_ENTRY') return res.status(409).json({ message: "Username already exists" });
-        res.status(500).json({ message: "Database error" });
+        if (err.code === 'ER_DUP_ENTRY') {
+            return res.status(409).json({ message: "Username already exists." });
+        }
+        console.error("Registration error:", err);
+        res.status(500).json({ message: "An internal server error occurred during registration." });
     }
 });
 

@@ -2,10 +2,9 @@
  * @fileoverview Defines the authentication modal component for user login and registration.
  * It is rendered using a React Portal to avoid CSS stacking issues.
  */
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import ReactDOM from 'react-dom';
 
-// Fix: Updated onLogin and onRegister prop types to accept a Promise, aligning with the async functions from useAuth.
 interface AuthModalProps {
     /** A boolean to control the visibility of the modal. */
     isOpen: boolean;
@@ -42,32 +41,39 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onLogin, 
     const [password, setPassword] = useState('');
     // State for displaying feedback (errors or success messages) to the user.
     const [error, setError] = useState('');
-    const [success, setSuccess] = useState('');
+
+    // Effect to reset the modal to its default (login) state whenever it becomes visible.
+    // This ensures a consistent user experience.
+    useEffect(() => {
+        if (isOpen) {
+            setIsLogin(true);
+            setError('');
+            setUsername('');
+            setPassword('');
+        }
+    }, [isOpen]);
 
     /**
      * Handles the form submission for both login and registration.
      * @param {React.FormEvent} e - The form submission event.
      */
-    // Fix: Converted handleSubmit to an async function to await the results of onLogin and onRegister.
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setError('');
-        setSuccess('');
 
         if (isLogin) {
             const loginError = await onLogin(username, password);
             if (loginError) {
                 setError(loginError);
             }
-            // No 'else' block needed, onLoginSuccess (which is closeAuthModal) is called from the useAuth hook.
+            // onLoginSuccess (which is closeAuthModal) is called from the useAuth hook.
         } else {
             const registerError = await onRegister(username, password);
             if (registerError) {
                 setError(registerError);
             }
-            // No 'else' block is needed. If registration is successful, the useAuth hook
-            // will automatically log the user in and the onLoginSuccess callback will close the modal.
-            // The old flow of showing a success message and switching forms is no longer necessary.
+            // If registration is successful, the useAuth hook will automatically log the user in
+            // and the onLoginSuccess callback will close the modal.
         }
     };
 
@@ -77,25 +83,25 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onLogin, 
     const handleSwitchForm = () => {
         setIsLogin(!isLogin);
         setError('');
-        setSuccess('');
         setUsername('');
         setPassword('');
     }
     
     // The modal is rendered into the 'modal-root' div in index.html using a Portal.
     // This avoids z-index issues and keeps the modal outside the main component hierarchy.
+    if (!isOpen) return null;
+    
     return ReactDOM.createPortal(
         <div 
             className={`fixed inset-0 bg-black/70 z-50 flex justify-center items-center transition-opacity duration-300 ${isOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
             onClick={onClose} // Allow closing the modal by clicking the backdrop.
         >
             <div 
-                className="bg-brand-secondary p-8 rounded-lg w-full max-w-sm" 
+                className="bg-brand-secondary p-8 rounded-lg w-full max-w-sm animate-fade-in" 
                 onClick={e => e.stopPropagation()} // Prevent clicks inside the modal from closing it.
             >
                 <h2 className="text-2xl font-bold text-center mb-4">{isLogin ? "Login" : "Register"}</h2>
                 {error && <p className="text-red-400 text-sm text-center mb-4">{error}</p>}
-                {success && <p className="text-green-400 text-sm text-center mb-4">{success}</p>}
                 <form onSubmit={handleSubmit} className="space-y-4">
                     <input type="text" placeholder="Username" value={username} onChange={e => setUsername(e.target.value)} required className="w-full bg-brand-primary p-3 rounded-md focus:ring-2 focus:ring-brand-accent focus:outline-none"/>
                     <input type="password" placeholder="Password" value={password} onChange={e => setPassword(e.target.value)} required className="w-full bg-brand-primary p-3 rounded-md focus:ring-2 focus:ring-brand-accent focus:outline-none"/>
