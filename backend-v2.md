@@ -186,12 +186,63 @@ const corsOptions = {
 };
 
 // --- DATABASE MIGRATIONS (MySQL Syntax) ---
+// This new structure allows for more robust, named, and transactional migrations.
 const migrations = [
-    `CREATE TABLE IF NOT EXISTS users (id INT PRIMARY KEY AUTO_INCREMENT, username VARCHAR(255) UNIQUE NOT NULL, password VARCHAR(255) NOT NULL, is_admin TINYINT(1) DEFAULT 0 NOT NULL, is_banned TINYINT(1) DEFAULT 0 NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)`,
-    `CREATE TABLE IF NOT EXISTS dramas (url VARCHAR(255) PRIMARY KEY, title VARCHAR(255), data JSON)`,
-    `CREATE TABLE IF NOT EXISTS user_favorites (user_id INT, drama_url VARCHAR(255), PRIMARY KEY (user_id, drama_url), FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE, FOREIGN KEY (drama_url) REFERENCES dramas(url) ON DELETE CASCADE)`,
-    `CREATE TABLE IF NOT EXISTS user_statuses (user_id INT, drama_url VARCHAR(255), status VARCHAR(255), currentEpisode INT, updated_at BIGINT, PRIMARY KEY (user_id, drama_url), FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE, FOREIGN KEY (drama_url) REFERENCES dramas(url) ON DELETE CASCADE)`,
-    `CREATE TABLE IF NOT EXISTS user_episode_reviews (user_id INT, drama_url VARCHAR(255), episode_number INT, review_text TEXT, updated_at BIGINT, PRIMARY KEY (user_id, drama_url, episode_number), FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE, FOREIGN KEY (drama_url) REFERENCES dramas(url) ON DELETE CASCADE)`
+    {
+        name: '001_initial_schema',
+        up: `
+            CREATE TABLE IF NOT EXISTS users (
+                id INT PRIMARY KEY AUTO_INCREMENT, 
+                username VARCHAR(255) UNIQUE NOT NULL, 
+                password VARCHAR(255) NOT NULL, 
+                is_admin TINYINT(1) DEFAULT 0 NOT NULL, 
+                is_banned TINYINT(1) DEFAULT 0 NOT NULL, 
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE TABLE IF NOT EXISTS dramas (
+                url VARCHAR(255) PRIMARY KEY, 
+                title VARCHAR(255), 
+                data JSON
+            );
+
+            CREATE TABLE IF NOT EXISTS user_favorites (
+                user_id INT, 
+                drama_url VARCHAR(255), 
+                updated_at BIGINT, 
+                PRIMARY KEY (user_id, drama_url), 
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE, 
+                FOREIGN KEY (drama_url) REFERENCES dramas(url) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS user_statuses (
+                user_id INT, 
+                drama_url VARCHAR(255), 
+                status VARCHAR(255), 
+                currentEpisode INT, 
+                updated_at BIGINT, 
+                PRIMARY KEY (user_id, drama_url), 
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE, 
+                FOREIGN KEY (drama_url) REFERENCES dramas(url) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS user_episode_reviews (
+                user_id INT, 
+                drama_url VARCHAR(255), 
+                episode_number INT, 
+                review_text TEXT, 
+                updated_at BIGINT, 
+                PRIMARY KEY (user_id, drama_url, episode_number), 
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE, 
+                FOREIGN KEY (drama_url) REFERENCES dramas(url) ON DELETE CASCADE
+            );
+        `
+    }
+    // Future migrations can be added here as new objects. For example:
+    // {
+    //   name: '002_add_new_feature_table',
+    //   up: 'CREATE TABLE new_feature (id INT);'
+    // }
 ];
 
 // --- DATABASE & IN-MEMORY CACHE SETUP ---
@@ -215,27 +266,54 @@ async function initializeDatabase() {
 
 // --- HELPER & HANDLER FUNCTION DEFINITIONS ---
 async function runMigrations() {
+    // 1. Ensure migrations table exists.
     await db.execute(`CREATE TABLE IF NOT EXISTS migrations (id INT PRIMARY KEY AUTO_INCREMENT, name VARCHAR(255) UNIQUE NOT NULL)`);
-    const [completedMigrations] = await db.query('SELECT name FROM migrations');
-    const completedNames = new Set(completedMigrations.map(m => m.name));
     
-    const pendingMigrations = migrations.filter((_, index) => !completedNames.has(`migration_${index}`));
+    // 2. Get all migrations that have already been run.
+    const [completedRows] = await db.query('SELECT name FROM migrations');
+    const completedNames = new Set(completedRows.map(m => m.name));
+
+    // 3. Find migrations that need to be run.
+    const pendingMigrations = migrations.filter(m => !completedNames.has(m.name));
+
     if (pendingMigrations.length === 0) {
         console.log("Database schema is up to date.");
         return;
     }
 
     console.log(`Found ${pendingMigrations.length} pending migrations. Applying...`);
-    for (let i = 0; i < migrations.length; i++) {
-        if (!completedNames.has(`migration_${i}`)) {
-            try {
-                await db.execute(migrations[i]);
-                await db.execute('INSERT INTO migrations (name) VALUES (?)', [`migration_${i}`]);
-                console.log(`Applied migration_${i}`);
-            } catch (migrationErr) {
-                console.error(`Failed to apply migration_${i}:`, migrationErr);
-                throw migrationErr;
+
+    // 4. Run each pending migration in a transaction.
+    for (const migration of pendingMigrations) {
+        console.log(`- Applying migration: ${migration.name}...`);
+        const connection = await db.getConnection(); // Get a dedicated connection for the transaction.
+        try {
+            await connection.beginTransaction();
+
+            if (typeof migration.up === 'function') {
+                // For complex migrations with JS logic
+                await migration.up(connection);
+            } else if (typeof migration.up === 'string') {
+                // For simple SQL script migrations
+                // Split by semicolon for multi-statement strings, filtering out empty ones from newlines etc.
+                const statements = migration.up.split(';').map(s => s.trim()).filter(s => s.length > 0);
+                for (const statement of statements) {
+                    await connection.execute(statement);
+                }
             }
+
+            // Record the successful migration.
+            await connection.execute('INSERT INTO migrations (name) VALUES (?)', [migration.name]);
+            
+            await connection.commit();
+            console.log(`  ...Success: Applied migration '${migration.name}'`);
+        } catch (err) {
+            await connection.rollback();
+            console.error(`  ...ERROR: Failed to apply migration '${migration.name}'. Rolling back.`, err);
+            // Re-throw error to halt server startup, preventing it from running with a partial/bad schema.
+            throw err; 
+        } finally {
+            connection.release();
         }
     }
     console.log("All pending migrations applied successfully.");
@@ -356,8 +434,10 @@ async function fetchUserData(userId) {
         userData.episodeReviews[r.drama_url][r.episode_number] = { text: r.review_text, updatedAt: r.updated_at };
     });
 
-    // Note: Timestamps for 'Favorites' list are not stored per-item, so we cannot derive it here.
-    // The frontend's optimistic updates will handle the dynamic sorting for favorites.
+    const [favTsRows] = await db.query('SELECT MAX(updated_at) as max_ts FROM user_favorites WHERE user_id = ?', [userId]);
+    if (favTsRows[0] && favTsRows[0].max_ts) {
+        userData.listUpdateTimestamps['Favorites'] = favTsRows[0].max_ts;
+    }
 
     return userData;
 }
@@ -404,10 +484,8 @@ io.on('connection', (socket) => {
 app.get('/api/health', (req, res) => res.status(200).json({ status: 'ok' }));
 app.get('/api/dramas/metadata', apiLimiter, (req, res) => res.json(inMemoryMetadata));
 
-// Drama listing endpoint (same logic as before)
 app.get('/api/dramas', apiLimiter, (req, res) => {
     const { page = '1', limit = '24', search = '', minRating = '0', genres = '', excludeGenres = '', tags = '', excludeTags = '', countries = '', cast = '', sort = '[]' } = req.query;
-    // Filtering and sorting logic is CPU-bound, so it remains largely unchanged from the SQLite version.
     const filters = {
         genres: genres ? genres.split(',') : [], excludeGenres: excludeGenres ? excludeGenres.split(',') : [],
         tags: tags ? tags.split(',') : [], excludeTags: excludeTags ? excludeTags.split(',') : [],
@@ -474,18 +552,14 @@ app.use('/api/auth', authLimiter);
 app.post('/api/auth/register', async (req, res) => {
     try {
         const { username, password } = req.body;
-        // More permissive regex to allow email-like usernames.
         const usernameRegex = /^[a-zA-Z0-9_.\-@+]{3,50}$/;
         if (!usernameRegex.test(username) || !password || password.length < 6) {
             return res.status(400).json({ message: "Invalid input. Username must be 3-50 characters. Password must be at least 6 characters." });
         }
         const hashedPassword = bcrypt.hashSync(password, 8);
         
-        // Insert the new user
         const [result] = await db.execute('INSERT INTO users (username, password) VALUES (?, ?)', [username, hashedPassword]);
         const newUserId = result.insertId;
-
-        // Fetch the newly created user to get all details
         const [rows] = await db.query('SELECT * FROM users WHERE id = ?', [newUserId]);
         const user = rows[0];
 
@@ -493,15 +567,12 @@ app.post('/api/auth/register', async (req, res) => {
             return res.status(500).json({ message: "Failed to create and retrieve user." });
         }
 
-        // Automatically log the user in by creating a session
         const token = jwt.sign({ id: user.id, username: user.username, isAdmin: !!user.is_admin }, JWT_SECRET, { expiresIn: '24h' });
         res.cookie('token', token, { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'strict', maxAge: 24 * 60 * 60 * 1000 });
         
-        // Respond with the complete user payload (user object and initial data)
-        // to streamline the frontend logic and avoid a second API call.
         res.status(201).json({ 
             user: { username: user.username, isAdmin: !!user.is_admin },
-            data: { favorites: [], statuses: {}, reviews: {}, episodeReviews: {} } // A new user has empty data
+            data: { favorites: [], statuses: {}, reviews: {}, episodeReviews: {} }
         });
     } catch (err) {
         if (err.code === 'ER_DUP_ENTRY') {
@@ -548,8 +619,14 @@ app.get('/api/user/data', async (req, res) => {
 
 app.post('/api/user/favorites', async (req, res) => {
     const { dramaUrl, isFavorite } = req.body;
-    const sql = isFavorite ? 'INSERT IGNORE INTO user_favorites (user_id, drama_url) VALUES (?, ?)' : 'DELETE FROM user_favorites WHERE user_id = ? AND drama_url = ?';
-    const [result] = await db.execute(sql, [req.user.id, dramaUrl]);
+    const now = Date.now();
+    const sql = isFavorite 
+        ? 'INSERT INTO user_favorites (user_id, drama_url, updated_at) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE updated_at=VALUES(updated_at)' 
+        : 'DELETE FROM user_favorites WHERE user_id = ? AND drama_url = ?';
+    
+    const params = isFavorite ? [req.user.id, dramaUrl, now] : [req.user.id, dramaUrl];
+    const [result] = await db.execute(sql, params);
+    
     if (result.affectedRows > 0) emitToUserRoom(req.user.id, 'favorite_updated', { dramaUrl, isFavorite });
     res.status(200).json({ success: true });
 });
@@ -576,28 +653,74 @@ app.post('/api/user/statuses', async (req, res) => {
     res.status(200).json({ success: true });
 });
 
-app.post('/api/user/reviews/episodes', async (req, res) => {
-    const { dramaUrl, episodeNumber, text, clientUpdatedAt, force } = req.body;
-    if (text.trim() === '') {
-        const [result] = await db.execute('DELETE FROM user_episode_reviews WHERE user_id = ? AND drama_url = ? AND episode_number = ?', [req.user.id, dramaUrl, episodeNumber]);
-        if (result.affectedRows > 0) emitToUserRoom(req.user.id, 'episode_review_updated', { dramaUrl, episodeNumber, review: null });
-        return res.status(200).json({ success: true });
-    }
+app.post('/api/user/reviews/track_progress', async (req, res) => {
+    const { dramaUrl, episodeNumber, text, totalEpisodes } = req.body;
+    const now = Date.now();
+    const userId = req.user.id;
     
-    const [rows] = await db.query('SELECT updated_at, review_text FROM user_episode_reviews WHERE user_id = ? AND drama_url = ? AND episode_number = ?', [req.user.id, dramaUrl, episodeNumber]);
-    const serverVersion = rows[0];
+    const connection = await db.getConnection();
+    try {
+        await connection.beginTransaction();
 
-    if (!force && serverVersion && serverVersion.updated_at > clientUpdatedAt) {
-        return res.status(409).json({ message: 'Conflict detected.', serverVersion: { text: serverVersion.review_text, updatedAt: serverVersion.updated_at } });
-    }
+        let reviewUpdated = false;
+        if (text.trim() === '') {
+            const [deleteResult] = await connection.execute('DELETE FROM user_episode_reviews WHERE user_id = ? AND drama_url = ? AND episode_number = ?', [userId, dramaUrl, episodeNumber]);
+            if (deleteResult.affectedRows > 0) reviewUpdated = true;
+        } else {
+            const [upsertResult] = await connection.execute('INSERT INTO user_episode_reviews (user_id, drama_url, episode_number, review_text, updated_at) VALUES (?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE review_text=VALUES(review_text), updated_at=VALUES(updated_at)', [userId, dramaUrl, episodeNumber, text, now]);
+            if (upsertResult.affectedRows > 0) reviewUpdated = true;
+        }
 
-    const newUpdatedAt = Date.now();
-    const [result] = await db.execute('INSERT INTO user_episode_reviews (user_id, drama_url, episode_number, review_text, updated_at) VALUES (?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE review_text=VALUES(review_text), updated_at=VALUES(updated_at)', [req.user.id, dramaUrl, episodeNumber, text, newUpdatedAt]);
-    
-    if (result.affectedRows > 0) {
-        emitToUserRoom(req.user.id, 'episode_review_updated', { dramaUrl, episodeNumber, review: { text, updatedAt: newUpdatedAt } });
+        let statusUpdated = false;
+        let finalStatusInfo = null;
+
+        if (text.trim() !== '') {
+            const [statusRows] = await connection.query('SELECT * FROM user_statuses WHERE user_id = ? AND drama_url = ? FOR UPDATE', [userId, dramaUrl]);
+            const oldStatusInfo = statusRows[0];
+            const oldStatus = oldStatusInfo?.status;
+
+            let newStatus = oldStatus || 'Plan to Watch';
+            let newCurrentEpisode = oldStatusInfo?.currentEpisode || 0;
+
+            if (newStatus === 'Plan to Watch') {
+                newStatus = 'Watching';
+            }
+            newCurrentEpisode = Math.max(newCurrentEpisode, episodeNumber);
+            if (episodeNumber === totalEpisodes) {
+                newStatus = 'Completed';
+                newCurrentEpisode = totalEpisodes;
+            }
+            
+            if (!oldStatusInfo || newStatus !== oldStatus || newCurrentEpisode !== oldStatusInfo.currentEpisode) {
+                 const [statusResult] = await connection.execute(
+                    'INSERT INTO user_statuses (user_id, drama_url, status, currentEpisode, updated_at) VALUES (?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE status=VALUES(status), currentEpisode=VALUES(currentEpisode), updated_at=VALUES(updated_at)', 
+                    [userId, dramaUrl, newStatus, newCurrentEpisode, now]
+                );
+                if (statusResult.affectedRows > 0) {
+                    statusUpdated = true;
+                    finalStatusInfo = { status: newStatus, currentEpisode: newCurrentEpisode, updatedAt: now };
+                }
+            }
+        }
+        
+        await connection.commit();
+
+        if (reviewUpdated) {
+            const review = text.trim() ? { text, updatedAt: now } : null;
+            emitToUserRoom(userId, 'episode_review_updated', { dramaUrl, episodeNumber, review });
+        }
+        if (statusUpdated) {
+            emitToUserRoom(userId, 'status_updated', { dramaUrl, statusInfo: finalStatusInfo });
+        }
+
+        res.status(200).json({ success: true });
+    } catch (error) {
+        await connection.rollback();
+        console.error('Track progress transaction failed:', error);
+        res.status(500).json({ message: 'Failed to update review and progress.' });
+    } finally {
+        connection.release();
     }
-    res.status(200).json({ success: true, newUpdatedAt });
 });
 
 
