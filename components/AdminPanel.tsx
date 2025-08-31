@@ -271,7 +271,7 @@ const UserManagementModal: React.FC<UserManagementModalProps> = ({ user, current
                                 <p className="text-xs text-slate-400">Toggle administrator role.</p>
                             </div>
                         </button>
-                         <button onClick={onToggleBan} className="w-full text-left p-3 hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center gap-3 rounded-md">
+                         <button onClick={onToggleBan} disabled={user.isAdmin} className="w-full text-left p-3 hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center gap-3 rounded-md disabled:opacity-50 disabled:cursor-not-allowed">
                             {user.is_banned ? <CheckBadgeIcon className="w-5 h-5 text-green-400" /> : <BanIcon className="w-5 h-5 text-yellow-400" />}
                             <div>
                                 <p className="font-semibold">{user.is_banned ? 'Unban User' : 'Ban User'}</p>
@@ -288,7 +288,7 @@ const UserManagementModal: React.FC<UserManagementModalProps> = ({ user, current
                                 <p className="text-xs text-slate-400">Generate a new temporary password.</p>
                             </div>
                         </button>
-                        <button onClick={onDeleteUser} disabled={currentUser?.username === user.username} className="w-full text-left p-3 hover:bg-red-100 dark:hover:bg-red-900/50 flex items-center gap-3 rounded-md text-red-600 dark:text-red-400 disabled:opacity-50 disabled:cursor-not-allowed mt-2">
+                        <button onClick={onDeleteUser} disabled={user.isAdmin} className="w-full text-left p-3 hover:bg-red-100 dark:hover:bg-red-900/50 flex items-center gap-3 rounded-md text-red-600 dark:text-red-400 disabled:opacity-50 disabled:cursor-not-allowed mt-2">
                             <TrashIcon className="w-5 h-5" />
                             <div>
                                 <p className="font-semibold">Delete User</p>

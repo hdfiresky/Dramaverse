@@ -26,6 +26,7 @@ import { AllReviewsPage } from './components/AllReviewsPage';
 import { BottomNavBar } from './components/BottomNavBar';
 import { ConflictResolutionModal } from './components/ConflictResolutionModal';
 import { AdminPanel } from './components/AdminPanel';
+import { PasswordChangeModal } from './components/PasswordChangeModal';
 
 
 export default function App() {
@@ -38,6 +39,7 @@ export default function App() {
         activeView, navigateTo,
         modalStack, pushModal, popModal, closeAllModals,
         isAuthModalOpen, openAuthModal, closeAuthModal,
+        isPasswordChangeModalOpen, openPasswordChangeModal, closePasswordChangeModal,
         isFilterSidebarOpen, toggleFilterSidebar,
         currentPage, setCurrentPage,
         theme, toggleTheme,
@@ -47,7 +49,7 @@ export default function App() {
     // `useAuth`: Encapsulates all logic related to user authentication and user-specific data.
     const {
         currentUser, userData, isAuthLoading,
-        login, logout, register,
+        login, logout, register, changePassword,
         toggleFavorite, setDramaStatus, togglePlanToWatch, setEpisodeReview, resolveReviewConflict
     } = useAuth(closeAuthModal, openConflictModal); // Pass callbacks.
 
@@ -243,6 +245,7 @@ export default function App() {
                 onLogout={handleLogout}
                 theme={theme}
                 toggleTheme={toggleTheme}
+                onOpenPasswordChangeModal={openPasswordChangeModal}
             />
             
              <FilterSidebar 
@@ -260,6 +263,12 @@ export default function App() {
             </main>
 
             <AuthModal isOpen={isAuthModalOpen} onClose={closeAuthModal} onLogin={login} onRegister={register} />
+
+            <PasswordChangeModal 
+                isOpen={isPasswordChangeModalOpen} 
+                onClose={closePasswordChangeModal} 
+                onChangePassword={changePassword} 
+            />
             
             <ConflictResolutionModal 
                 isOpen={!!conflictData}

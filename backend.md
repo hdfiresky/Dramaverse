@@ -353,6 +353,9 @@ async function fetchUserData(userId) {
 // --- EXPRESS & SOCKET.IO SERVER SETUP ---
 const app = express();
 const server = http.createServer(app);
+// This setting is crucial for Express to trust the 'X-Forwarded-For' header
+// set by a reverse proxy (like Nginx), ensuring the rate limiter sees the
+// actual user's IP address instead of the proxy's IP.
 app.set('trust proxy', 1); 
 app.use(helmet());
 const apiLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 200, standardHeaders: true, legacyHeaders: false, message: 'Too many requests, please try again after 15 minutes.' });
@@ -486,13 +489,19 @@ app.get('/api/dramas', apiLimiter, (req, res) => {
     });
 });
 
+// Apply general limiter to logout, which is a less sensitive auth action.
+app.post('/api/auth/logout', apiLimiter, (req, res) => {
+    res.clearCookie('token');
+    res.status(200).json({ message: "Logged out successfully" });
+});
+
+// Apply stricter limiter to login and registration routes to prevent brute-force attacks.
 app.use('/api/auth', authLimiter);
 
 app.post('/api/auth/register', (req, res) => {
     const { username, password } = req.body;
-    const usernameRegex = /^[a-zA-Z0-9_.-]{3,20}$/;
-    if (typeof username !== 'string' || typeof password !== 'string' || !usernameRegex.test(username) || password.length < 6) { 
-        return res.status(400).json({ message: "Invalid input: Username must be 3-20 alphanumeric characters. Password must be at least 6 characters." }); 
+    if (typeof username !== 'string' || typeof password !== 'string' || username.length < 3 || username.length > 254 || password.length < 6) {
+        return res.status(400).json({ message: "Invalid input: Username must be between 3 and 254 characters. Password must be at least 6 characters." });
     }
     const hashedPassword = bcrypt.hashSync(password, 8);
     db.run('INSERT INTO users (username, password, is_admin, is_banned) VALUES (?, ?, ?, ?)', [username, hashedPassword, 0, 0], function(err) {
@@ -515,11 +524,6 @@ app.post('/api/auth/login', (req, res) => {
     });
 });
 
-app.post('/api/auth/logout', (req, res) => {
-    res.clearCookie('token');
-    res.status(200).json({ message: "Logged out successfully" });
-});
-
 app.use('/api/user', authMiddleware, apiLimiter); 
 
 app.get('/api/user/data', async (req, res) => {
@@ -529,6 +533,28 @@ app.get('/api/user/data', async (req, res) => {
     } catch (error) {
         res.status(500).json({ message: "Failed to fetch user data." });
     }
+});
+
+app.post('/api/user/change-password', (req, res) => {
+    const { currentPassword, newPassword } = req.body;
+    if (typeof currentPassword !== 'string' || typeof newPassword !== 'string' || newPassword.length < 6) {
+        return res.status(400).json({ message: 'Invalid input. New password must be at least 6 characters.' });
+    }
+
+    db.get('SELECT password FROM users WHERE id = ?', [req.user.id], (err, user) => {
+        if (err) return res.status(500).json({ message: 'Database error.' });
+        if (!user) return res.status(404).json({ message: 'User not found.' });
+
+        if (!bcrypt.compareSync(currentPassword, user.password)) {
+            return res.status(401).json({ message: 'Incorrect current password.' });
+        }
+
+        const hashedNewPassword = bcrypt.hashSync(newPassword, 8);
+        db.run('UPDATE users SET password = ? WHERE id = ?', [hashedNewPassword, req.user.id], function(updateErr) {
+            if (updateErr) return res.status(500).json({ message: 'Failed to update password.' });
+            res.status(200).json({ message: 'Password updated successfully.' });
+        });
+    });
 });
 
 app.post('/api/user/favorites', (req, res) => {
