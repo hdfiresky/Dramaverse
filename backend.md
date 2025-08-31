@@ -12,6 +12,7 @@ This document provides a comprehensive guide to setting up and running the optio
     -   **Database**: SQLite3 (a lightweight, file-based SQL database)
     -   **Authentication**: JSON Web Tokens (JWT) for secure sessions.
     -   **Password Hashing**: `bcryptjs` to securely store user passwords.
+    -   **Security**: `helmet` for security headers and `express-rate-limit` for request throttling.
 
 -   **Functionality**:
     -   Handles user registration and login.
@@ -34,7 +35,7 @@ This document provides a comprehensive guide to setting up and running the optio
 
 3.  **Install Dependencies**: Install the necessary packages for the server.
     ```bash
-    npm install express sqlite3 cors bcryptjs jsonwebtoken socket.io
+    npm install express sqlite3 cors bcryptjs jsonwebtoken socket.io helmet express-rate-limit
     ```
 
 4.  **Install Development Dependency**: Install `nodemon` for automatic server restarts during development.
@@ -81,6 +82,8 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const sqlite3 = require('sqlite3').verbose();
 const fs = require('fs');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
 
 // --- CONFIGURATION ---
 const PORT = 3001;
@@ -156,7 +159,12 @@ if (process.argv.includes('--setup-db')) {
 const app = express();
 const server = http.createServer(app);
 
-const allowedOrigins = ['http://localhost:5173', 'http://127.0.0.1:5173'];
+// --- SECURITY MIDDLEWARE ---
+// 1. Set various security-related HTTP headers
+app.use(helmet());
+
+// 2. CORS Configuration
+const allowedOrigins = ['http://localhost:5173', 'http://127.0.0.1:5173']; // Add your production domain here
 const corsOptions = {
     origin: (origin, callback) => {
         if (!origin || allowedOrigins.includes(origin)) {
@@ -165,12 +173,33 @@ const corsOptions = {
             callback(new Error('Not allowed by CORS'));
         }
     },
+    methods: ['GET', 'POST', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
 };
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions)); // Handle pre-flight requests
+
+// 3. Rate Limiting to prevent brute-force and DoS attacks
+const apiLimiter = rateLimit({
+	windowMs: 15 * 60 * 1000, // 15 minutes
+	max: 200, // Limit each IP to 200 requests per window
+	standardHeaders: true,
+	legacyHeaders: false,
+    message: 'Too many requests from this IP, please try again after 15 minutes.',
+});
+const authLimiter = rateLimit({
+    windowMs: 30 * 60 * 1000, // 30 minutes
+    max: 10, // Limit each IP to 10 authentication attempts per window
+    message: 'Too many authentication attempts from this IP, please try again after 30 minutes.',
+});
+
+// Apply the general limiter to all API requests (except auth)
+app.use('/api/user', apiLimiter);
+
+// Parse JSON bodies
+app.use(express.json());
 
 const io = new Server(server, { cors: corsOptions });
-
-app.use(cors(corsOptions));
-app.use(express.json());
 
 
 // --- AUTHENTICATION MIDDLEWARE ---
@@ -242,9 +271,12 @@ async function emitUserDataUpdate(userId) {
 }
 
 // --- API ENDPOINTS ---
-app.post('/api/auth/register', (req, res) => {
+app.post('/api/auth/register', authLimiter, (req, res) => {
     const { username, password } = req.body;
-    if (!username || !password) return res.status(400).json({ message: "Username and password are required" });
+    // Input Validation
+    if (typeof username !== 'string' || typeof password !== 'string' || username.length < 3 || password.length < 6) {
+        return res.status(400).json({ message: "Invalid input: Username must be at least 3 characters and password at least 6 characters." });
+    }
     const hashedPassword = bcrypt.hashSync(password, 8);
     db.run('INSERT INTO users (username, password) VALUES (?, ?)', [username, hashedPassword], function(err) {
         if (err) return res.status(409).json({ message: "Username already exists" });
@@ -254,8 +286,12 @@ app.post('/api/auth/register', (req, res) => {
     });
 });
 
-app.post('/api/auth/login', (req, res) => {
+app.post('/api/auth/login', authLimiter, (req, res) => {
     const { username, password } = req.body;
+    // Input Validation
+    if (typeof username !== 'string' || typeof password !== 'string' || !username || !password) {
+        return res.status(400).json({ message: "Username and password are required." });
+    }
     db.get('SELECT * FROM users WHERE username = ?', [username], (err, user) => {
         if (err || !user || !bcrypt.compareSync(password, user.password)) {
             return res.status(401).json({ message: 'Invalid credentials' });
@@ -276,6 +312,10 @@ app.get('/api/user/data', authMiddleware, async (req, res) => {
 
 app.post('/api/user/favorites', authMiddleware, (req, res) => {
     const { dramaUrl, isFavorite } = req.body;
+    // Input Validation
+    if (typeof dramaUrl !== 'string' || typeof isFavorite !== 'boolean') {
+        return res.status(400).json({ message: 'Invalid payload.' });
+    }
     const sql = isFavorite 
         ? 'INSERT OR IGNORE INTO user_favorites (user_id, drama_url) VALUES (?, ?)'
         : 'DELETE FROM user_favorites WHERE user_id = ? AND drama_url = ?';
@@ -288,6 +328,10 @@ app.post('/api/user/favorites', authMiddleware, (req, res) => {
 
 app.post('/api/user/statuses', authMiddleware, (req, res) => {
     const { dramaUrl, status, currentEpisode } = req.body;
+    // Input Validation
+    if (typeof dramaUrl !== 'string' || typeof status !== 'string' || (currentEpisode !== undefined && typeof currentEpisode !== 'number')) {
+         return res.status(400).json({ message: 'Invalid payload.' });
+    }
     if (!status) {
         db.run('DELETE FROM user_statuses WHERE user_id = ? AND drama_url = ?', [req.user.id, dramaUrl], function(err) {
             if (err) return res.status(500).json({ message: 'Database error' });
@@ -305,6 +349,10 @@ app.post('/api/user/statuses', authMiddleware, (req, res) => {
 
 app.post('/api/user/reviews/episodes', authMiddleware, (req, res) => {
     const { dramaUrl, episodeNumber, text, clientUpdatedAt, force } = req.body;
+    // Input Validation
+    if (typeof dramaUrl !== 'string' || typeof episodeNumber !== 'number' || typeof text !== 'string' || typeof clientUpdatedAt !== 'number' || (force !== undefined && typeof force !== 'boolean')) {
+        return res.status(400).json({ message: 'Invalid payload.' });
+    }
     if (text.trim() === '') {
         db.run('DELETE FROM user_episode_reviews WHERE user_id = ? AND drama_url = ? AND episode_number = ?', [req.user.id, dramaUrl, episodeNumber], function(err) {
              if (err) return res.status(500).json({ message: 'Database error' });
@@ -331,7 +379,6 @@ app.post('/api/user/reviews/episodes', authMiddleware, (req, res) => {
 server.listen(PORT, () => {
     console.log(`Server with real-time support is running on http://localhost:${PORT}`);
 });
-
 ```
 
 ## 5. Running the Backend
