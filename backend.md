@@ -174,8 +174,56 @@ const db = new sqlite3.Database(DB_SOURCE, (err) => {
     console.log('Connected to the SQLite database.');
 });
 
-async function runMigrations() { /* ... (migration logic is at the bottom) ... */ }
-function seedDatabase() { /* ... (seed logic is at the bottom) ... */ }
+// --- HELPER & HANDLER FUNCTION DEFINITIONS ---
+async function runMigrations() {
+    return new Promise((resolve, reject) => {
+        db.serialize(() => {
+            db.run(`CREATE TABLE IF NOT EXISTS migrations (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE)`);
+            db.all('SELECT name FROM migrations', async (err, completedMigrations) => {
+                if (err) return reject(err);
+                const completedNames = new Set(completedMigrations.map(m => m.name));
+                const pendingMigrations = migrations.filter((_, index) => !completedNames.has(`migration_${index}`));
+                if (pendingMigrations.length === 0) { console.log("Database schema is up to date."); return resolve(); }
+                console.log(`Found ${pendingMigrations.length} pending migrations. Applying...`);
+                for (let i = 0; i < migrations.length; i++) {
+                    if (!completedNames.has(`migration_${i}`)) {
+                        try {
+                            await new Promise((res, rej) => db.run(migrations[i], (e) => e ? rej(e) : res()));
+                            await new Promise((res, rej) => db.run('INSERT INTO migrations (name) VALUES (?)', [`migration_${i}`], (e) => e ? rej(e) : res()));
+                            console.log(`Applied migration_${i}`);
+                        } catch (migrationErr) {
+                            console.error(`Failed to apply migration_${i}:`, migrationErr);
+                            return reject(migrationErr);
+                        }
+                    }
+                }
+                console.log("All pending migrations applied successfully.");
+                resolve();
+            });
+        });
+    });
+}
+
+function seedDatabase() {
+    return new Promise((resolve, reject) => {
+        if (!fs.existsSync('dramas.json')) { return reject(new Error('dramas.json not found in the backend directory.')); }
+        const dramas = JSON.parse(fs.readFileSync('dramas.json'));
+        db.serialize(() => {
+            const stmt = db.prepare("INSERT OR REPLACE INTO dramas (url, title, data) VALUES (?, ?, ?)");
+            let count = 0;
+            dramas.forEach(drama => {
+                const { url, title, ...rest } = drama;
+                stmt.run(url, title, JSON.stringify(rest));
+                count++;
+            });
+            stmt.finalize((err) => {
+                if (err) return reject(err);
+                console.log(`Successfully seeded/updated ${count} dramas into the database.`);
+                resolve();
+            });
+        });
+    });
+}
 
 async function loadDramasIntoMemory() {
     return new Promise((resolve, reject) => {
@@ -212,6 +260,49 @@ async function loadDramasIntoMemory() {
     });
 }
 
+const authMiddleware = (req, res, next) => {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) return res.status(401).json({ message: 'Authentication token required' });
+    const token = authHeader.split(' ')[1];
+    try {
+        req.user = jwt.verify(token, JWT_SECRET);
+        next();
+    } catch (err) {
+        return res.status(401).json({ message: 'Invalid or expired token' });
+    }
+};
+
+function emitToUserRoom(userId, event, payload) {
+    if (!userId || !event || !payload) return;
+    const room = `user_${userId}`;
+    io.to(room).emit(event, payload);
+    console.log(`Emitted event '${event}' to room '${room}'`);
+}
+
+async function fetchUserData(userId) {
+    if (!userId) throw new Error("User ID is required.");
+    try {
+        const userData = { favorites: [], statuses: {}, reviews: {}, episodeReviews: {} };
+        const queries = [
+            new Promise((resolve, reject) => db.all('SELECT drama_url FROM user_favorites WHERE user_id = ?', [userId], (err, rows) => err ? reject(err) : resolve(rows || []))),
+            new Promise((resolve, reject) => db.all('SELECT * FROM user_statuses WHERE user_id = ?', [userId], (err, rows) => err ? reject(err) : resolve(rows || []))),
+            new Promise((resolve, reject) => db.all('SELECT * FROM user_episode_reviews WHERE user_id = ?', [userId], (err, rows) => err ? reject(err) : resolve(rows || []))),
+        ];
+        const [favorites, statuses, episodeReviews] = await Promise.all(queries);
+        userData.favorites = favorites.map(f => f.drama_url);
+        statuses.forEach(s => { userData.statuses[s.drama_url] = { status: s.status, currentEpisode: s.currentEpisode }; });
+        episodeReviews.forEach(r => {
+            if (!userData.episodeReviews[r.drama_url]) userData.episodeReviews[r.drama_url] = {};
+            userData.episodeReviews[r.drama_url][r.episode_number] = { text: r.review_text, updatedAt: r.updated_at };
+        });
+        return userData;
+    } catch (error) {
+        console.error(`Failed to fetch data for user ID ${userId}:`, error);
+        throw error;
+    }
+}
+
+
 // --- EXPRESS & SOCKET.IO SERVER SETUP ---
 const app = express();
 const server = http.createServer(app);
@@ -223,12 +314,36 @@ app.use(express.json());
 app.use(cors(corsOptions));
 const io = new Server(server, { cors: corsOptions });
 
-// --- AUTH MIDDLEWARE & SOCKET HANDLERS ---
-const authMiddleware = (req, res, next) => { /* ... (logic is at the bottom) ... */ };
-io.use((socket, next) => { /* ... (logic is at the bottom) ... */ });
-io.on('connection', (socket) => { /* ... (logic is at the bottom) ... */ });
-function emitToUserRoom(userId, event, payload) { /* ... (logic is at the bottom) ... */ }
-async function fetchUserData(userId) { /* ... (logic is at the bottom) ... */ }
+// --- SOCKET.IO MIDDLEWARE & LISTENERS ---
+io.use((socket, next) => {
+    const token = socket.handshake.auth.token;
+    if (!token) {
+        console.warn(`Socket connection rejected: No token provided from ${socket.handshake.address}.`);
+        return next(new Error('Authentication error: Token not provided.'));
+    }
+    jwt.verify(token, JWT_SECRET, (err, decoded) => {
+        if (err) {
+            console.warn(`Socket connection rejected: Invalid token from ${socket.handshake.address}.`);
+            return next(new Error('Authentication error: Invalid token.'));
+        }
+        socket.user = decoded;
+        next();
+    });
+});
+io.on('connection', (socket) => {
+    console.log(`Real-time client connected: ${socket.user.username} (ID: ${socket.user.id})`);
+    socket.join(`user_${socket.user.id}`);
+
+    // Security Hardening: Add a wildcard listener to log any unexpected, unsolicited events from clients.
+    // In our architecture, clients should not be emitting any events after connection. This serves as a monitor.
+    socket.onAny((event, ...args) => {
+        console.warn(`SECURITY_WARN: Received unexpected event '${event}' from user '${socket.user.username}' (ID: ${socket.user.id}).`);
+    });
+
+    socket.on('disconnect', (reason) => {
+        console.log(`Real-time client disconnected: ${socket.user.username}. Reason: ${reason}`);
+    });
+});
 
 // --- API ENDPOINTS ---
 app.get('/api/health', (req, res) => res.status(200).json({ status: 'ok' }));
@@ -308,158 +423,8 @@ app.get('/api/dramas', (req, res) => {
     });
 });
 
-
 app.use('/api/auth', authLimiter);
-app.post('/api/auth/register', (req, res) => { /* ... (logic is at the bottom) ... */ });
-app.post('/api/auth/login', (req, res) => { /* ... (logic is at the bottom) ... */ });
 
-app.use('/api/user', authMiddleware, apiLimiter); 
-app.get('/api/user/data', async (req, res) => { /* ... (logic is at the bottom) ... */ });
-app.post('/api/user/favorites', (req, res) => { /* ... (logic is at the bottom) ... */ });
-app.post('/api/user/statuses', (req, res) => { /* ... (logic is at the bottom) ... */ });
-app.post('/api/user/reviews/episodes', (req, res) => { /* ... (logic is at the bottom) ... */ });
-
-app.use((err, req, res, next) => { /* ... (logic is at the bottom) ... */ });
-
-// --- SERVER START & GRACEFUL SHUTDOWN ---
-async function startServer() {
-    try {
-        await runMigrations();
-        await loadDramasIntoMemory(); // Load data into cache before starting server
-        server.listen(PORT, () => {
-            console.log(`Server with real-time support is running on http://localhost:${PORT}`);
-        });
-    } catch (err) {
-        console.error("Failed to start server:", err);
-        process.exit(1);
-    }
-}
-startServer();
-process.on('SIGINT', () => { /* ... (shutdown logic is at the bottom) ... */ });
-
-
-// --- FULL IMPLEMENTATIONS FOR COPY/PASTE ---
-
-async function runMigrations() {
-    return new Promise((resolve, reject) => {
-        db.serialize(() => {
-            db.run(`CREATE TABLE IF NOT EXISTS migrations (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE)`);
-            db.all('SELECT name FROM migrations', async (err, completedMigrations) => {
-                if (err) return reject(err);
-                const completedNames = new Set(completedMigrations.map(m => m.name));
-                const pendingMigrations = migrations.filter((_, index) => !completedNames.has(`migration_${index}`));
-                if (pendingMigrations.length === 0) { console.log("Database schema is up to date."); return resolve(); }
-                console.log(`Found ${pendingMigrations.length} pending migrations. Applying...`);
-                for (let i = 0; i < migrations.length; i++) {
-                    if (!completedNames.has(`migration_${i}`)) {
-                        try {
-                            await new Promise((res, rej) => db.run(migrations[i], (e) => e ? rej(e) : res()));
-                            await new Promise((res, rej) => db.run('INSERT INTO migrations (name) VALUES (?)', [`migration_${i}`], (e) => e ? rej(e) : res()));
-                            console.log(`Applied migration_${i}`);
-                        } catch (migrationErr) {
-                            console.error(`Failed to apply migration_${i}:`, migrationErr);
-                            return reject(migrationErr);
-                        }
-                    }
-                }
-                console.log("All pending migrations applied successfully.");
-                resolve();
-            });
-        });
-    });
-}
-function seedDatabase() {
-    return new Promise((resolve, reject) => {
-        if (!fs.existsSync('dramas.json')) { return reject(new Error('dramas.json not found in the backend directory.')); }
-        const dramas = JSON.parse(fs.readFileSync('dramas.json'));
-        db.serialize(() => {
-            const stmt = db.prepare("INSERT OR REPLACE INTO dramas (url, title, data) VALUES (?, ?, ?)");
-            let count = 0;
-            dramas.forEach(drama => {
-                const { url, title, ...rest } = drama;
-                stmt.run(url, title, JSON.stringify(rest));
-                count++;
-            });
-            stmt.finalize((err) => {
-                if (err) return reject(err);
-                console.log(`Successfully seeded/updated ${count} dramas into the database.`);
-                resolve();
-            });
-        });
-    });
-}
-if (process.argv.includes('--seed')) {
-    seedDatabase().then(() => db.close()).catch(err => console.error("Seeding failed:", err));
-    return;
-}
-const authMiddleware = (req, res, next) => {
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) return res.status(401).json({ message: 'Authentication token required' });
-    const token = authHeader.split(' ')[1];
-    try {
-        req.user = jwt.verify(token, JWT_SECRET);
-        next();
-    } catch (err) {
-        return res.status(401).json({ message: 'Invalid or expired token' });
-    }
-};
-io.use((socket, next) => {
-    const token = socket.handshake.auth.token;
-    if (!token) {
-        console.warn(`Socket connection rejected: No token provided from ${socket.handshake.address}.`);
-        return next(new Error('Authentication error: Token not provided.'));
-    }
-    jwt.verify(token, JWT_SECRET, (err, decoded) => {
-        if (err) {
-            console.warn(`Socket connection rejected: Invalid token from ${socket.handshake.address}.`);
-            return next(new Error('Authentication error: Invalid token.'));
-        }
-        socket.user = decoded;
-        next();
-    });
-});
-io.on('connection', (socket) => {
-    console.log(`Real-time client connected: ${socket.user.username} (ID: ${socket.user.id})`);
-    socket.join(`user_${socket.user.id}`);
-
-    // Security Hardening: Add a wildcard listener to log any unexpected, unsolicited events from clients.
-    // In our architecture, clients should not be emitting any events after connection. This serves as a monitor.
-    socket.onAny((event, ...args) => {
-        console.warn(`SECURITY_WARN: Received unexpected event '${event}' from user '${socket.user.username}' (ID: ${socket.user.id}).`);
-    });
-
-    socket.on('disconnect', (reason) => {
-        console.log(`Real-time client disconnected: ${socket.user.username}. Reason: ${reason}`);
-    });
-});
-function emitToUserRoom(userId, event, payload) {
-    if (!userId || !event || !payload) return;
-    const room = `user_${userId}`;
-    io.to(room).emit(event, payload);
-    console.log(`Emitted event '${event}' to room '${room}'`);
-}
-async function fetchUserData(userId) {
-    if (!userId) throw new Error("User ID is required.");
-    try {
-        const userData = { favorites: [], statuses: {}, reviews: {}, episodeReviews: {} };
-        const queries = [
-            new Promise((resolve, reject) => db.all('SELECT drama_url FROM user_favorites WHERE user_id = ?', [userId], (err, rows) => err ? reject(err) : resolve(rows || []))),
-            new Promise((resolve, reject) => db.all('SELECT * FROM user_statuses WHERE user_id = ?', [userId], (err, rows) => err ? reject(err) : resolve(rows || []))),
-            new Promise((resolve, reject) => db.all('SELECT * FROM user_episode_reviews WHERE user_id = ?', [userId], (err, rows) => err ? reject(err) : resolve(rows || []))),
-        ];
-        const [favorites, statuses, episodeReviews] = await Promise.all(queries);
-        userData.favorites = favorites.map(f => f.drama_url);
-        statuses.forEach(s => { userData.statuses[s.drama_url] = { status: s.status, currentEpisode: s.currentEpisode }; });
-        episodeReviews.forEach(r => {
-            if (!userData.episodeReviews[r.drama_url]) userData.episodeReviews[r.drama_url] = {};
-            userData.episodeReviews[r.drama_url][r.episode_number] = { text: r.review_text, updatedAt: r.updated_at };
-        });
-        return userData;
-    } catch (error) {
-        console.error(`Failed to fetch data for user ID ${userId}:`, error);
-        throw error;
-    }
-}
 app.post('/api/auth/register', (req, res) => {
     const { username, password } = req.body;
     // Security Hardening: Add strict regex for username validation to prevent injection.
@@ -475,6 +440,7 @@ app.post('/api/auth/register', (req, res) => {
         res.status(201).json({ message: "User created successfully", user: { username }, token });
     });
 });
+
 app.post('/api/auth/login', (req, res) => {
     const { username, password } = req.body;
     if (typeof username !== 'string' || typeof password !== 'string' || !username || !password) { return res.status(400).json({ message: "Username and password are required." }); }
@@ -484,6 +450,9 @@ app.post('/api/auth/login', (req, res) => {
         res.json({ user: { username: user.username }, token });
     });
 });
+
+app.use('/api/user', authMiddleware, apiLimiter); 
+
 app.get('/api/user/data', async (req, res) => {
     try {
         const userData = await fetchUserData(req.user.id);
@@ -492,6 +461,7 @@ app.get('/api/user/data', async (req, res) => {
         res.status(500).json({ message: "Failed to fetch user data." });
     }
 });
+
 app.post('/api/user/favorites', (req, res) => {
     const { dramaUrl, isFavorite } = req.body;
     if (typeof dramaUrl !== 'string' || typeof isFavorite !== 'boolean') return res.status(400).json({ message: 'Invalid payload.' });
@@ -502,6 +472,7 @@ app.post('/api/user/favorites', (req, res) => {
         res.status(200).json({ success: true });
     });
 });
+
 app.post('/api/user/statuses', (req, res) => {
     const { dramaUrl, status, currentEpisode } = req.body;
     if (typeof dramaUrl !== 'string' || typeof status !== 'string' || (currentEpisode !== undefined && typeof currentEpisode !== 'number')) { return res.status(400).json({ message: 'Invalid payload.' }); }
@@ -520,6 +491,7 @@ app.post('/api/user/statuses', (req, res) => {
         });
     }
 });
+
 app.post('/api/user/reviews/episodes', (req, res) => {
     const { dramaUrl, episodeNumber, text, clientUpdatedAt, force } = req.body;
     if (typeof dramaUrl !== 'string' || typeof episodeNumber !== 'number' || typeof text !== 'string' || typeof clientUpdatedAt !== 'number' || (force !== undefined && typeof force !== 'boolean')) { return res.status(400).json({ message: 'Invalid payload.' }); }
@@ -547,10 +519,27 @@ app.post('/api/user/reviews/episodes', (req, res) => {
         });
     });
 });
+
+// --- ERROR HANDLING & SERVER START ---
 app.use((err, req, res, next) => {
     console.error("An unexpected error occurred:", err);
     res.status(500).json({ message: 'Something broke! A server error occurred.' });
 });
+
+async function startServer() {
+    try {
+        await runMigrations();
+        await loadDramasIntoMemory(); // Load data into cache before starting server
+        server.listen(PORT, () => {
+            console.log(`Server with real-time support is running on http://localhost:${PORT}`);
+        });
+    } catch (err) {
+        console.error("Failed to start server:", err);
+        process.exit(1);
+    }
+}
+startServer();
+
 process.on('SIGINT', () => {
     console.log('SIGINT signal received: closing HTTP server and database.');
     server.close(() => {
@@ -562,6 +551,21 @@ process.on('SIGINT', () => {
         });
     });
 });
+
+// --- SEED SCRIPT RUNNER ---
+if (process.argv.includes('--seed')) {
+    seedDatabase()
+      .then(() => {
+          console.log("Seeding complete. Closing database connection.");
+          db.close();
+       })
+      .catch(err => {
+          console.error("Seeding failed:", err);
+          db.close();
+          process.exit(1);
+      });
+}
+
 ```
 ## 5. Running the Backend
 
