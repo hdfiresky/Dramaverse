@@ -149,7 +149,6 @@ if (CORS_ALLOWED_ORIGINS) {
 
 const corsOptions = {
     origin: (origin, callback) => {
-        // Allow requests with no origin (like mobile apps or curl requests)
         if (!origin || allowedOrigins.includes(origin)) {
             callback(null, true);
         } else {
@@ -254,15 +253,17 @@ app.set('trust proxy', 1);
 // 2. Set security-related HTTP headers
 app.use(helmet());
 
-// 3. Parse JSON request bodies
-app.use(express.json());
-
-// 4. Handle Cross-Origin Resource Sharing
-app.use(cors(corsOptions));
-
-// 5. Rate Limiting
+// 3. Rate Limiting (apply before other middleware that processes requests)
 const apiLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 200, standardHeaders: true, legacyHeaders: false, message: 'Too many requests, please try again after 15 minutes.' });
 const authLimiter = rateLimit({ windowMs: 30 * 60 * 1000, max: 10, message: 'Too many authentication attempts, please try again after 30 minutes.' });
+app.use('/api/', apiLimiter); // General limiter for all API routes
+app.use('/api/auth', authLimiter); // Stricter limiter for auth routes
+
+// 4. Parse JSON request bodies
+app.use(express.json());
+
+// 5. Handle Cross-Origin Resource Sharing
+app.use(cors(corsOptions));
 
 const io = new Server(server, { cors: corsOptions });
 
@@ -339,14 +340,9 @@ async function fetchUserData(userId) {
 
 async function emitUserDataUpdate(userId) {
     if (!userId) return;
-
-    // If there's already a timer for this user, clear it.
-    // We'll reset it, effectively debouncing the event to prevent "sync storms".
     if (debouncedUpdateTimers.has(userId)) {
         clearTimeout(debouncedUpdateTimers.get(userId));
     }
-
-    // Set a new timer.
     const timerId = setTimeout(async () => {
         try {
             const userData = await fetchUserData(userId);
@@ -355,12 +351,9 @@ async function emitUserDataUpdate(userId) {
         } catch (error) {
             console.error(`(Debounced) Failed to emit data for user ID ${userId}:`, error);
         } finally {
-            // Clean up the timer from the map once it has run.
             debouncedUpdateTimers.delete(userId);
         }
     }, DEBOUNCE_DELAY_MS);
-
-    // Store the new timer ID.
     debouncedUpdateTimers.set(userId, timerId);
 }
 
@@ -369,8 +362,7 @@ app.get('/api/health', (req, res) => {
     res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// Auth routes (stricter rate limit)
-app.post('/api/auth/register', authLimiter, (req, res) => {
+app.post('/api/auth/register', (req, res) => {
     const { username, password } = req.body;
     if (typeof username !== 'string' || typeof password !== 'string' || username.length < 3 || password.length < 6) {
         return res.status(400).json({ message: "Invalid input: Username must be at least 3 characters and password at least 6 characters." });
@@ -384,7 +376,7 @@ app.post('/api/auth/register', authLimiter, (req, res) => {
     });
 });
 
-app.post('/api/auth/login', authLimiter, (req, res) => {
+app.post('/api/auth/login', (req, res) => {
     const { username, password } = req.body;
     if (typeof username !== 'string' || typeof password !== 'string' || !username || !password) {
         return res.status(400).json({ message: "Username and password are required." });
@@ -398,13 +390,16 @@ app.post('/api/auth/login', authLimiter, (req, res) => {
     });
 });
 
-// General API routes (less strict rate limit)
-app.use('/api/user', apiLimiter, authMiddleware); // Protect all subsequent user routes
+app.use('/api/user', authMiddleware); // Protect all subsequent user routes
 
 app.get('/api/user/data', async (req, res) => {
     try {
         const userData = await fetchUserData(req.user.id);
-        res.json(userData);
+        // Return a combined payload with both user identity and their data.
+        res.json({
+            user: { username: req.user.username },
+            data: userData
+        });
     } catch (error) {
         res.status(500).json({ message: "Failed to fetch user data." });
     }
@@ -472,7 +467,7 @@ app.post('/api/user/reviews/episodes', (req, res) => {
 
 // --- GLOBAL ERROR HANDLER (MUST BE LAST) ---
 app.use((err, req, res, next) => {
-    console.error("An unexpected error occurred:", err.stack);
+    console.error("An unexpected error occurred:", err);
     res.status(500).json({ message: 'Something broke! A server error occurred.' });
 });
 

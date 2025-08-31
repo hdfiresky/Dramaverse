@@ -36,7 +36,6 @@ export const useAuth = (onLoginSuccess?: () => void, openConflictModal?: (data: 
     useEffect(() => {
         const initialize = async () => {
             if (BACKEND_MODE) {
-                // On initial load in backend mode, we assume loading until session is validated.
                 setIsAuthLoading(true);
                 if (authToken) {
                     try {
@@ -44,11 +43,9 @@ export const useAuth = (onLoginSuccess?: () => void, openConflictModal?: (data: 
                             headers: { 'Authorization': `Bearer ${authToken}` }
                         });
                         if (!res.ok) throw new Error('Invalid session');
-                        const data = await res.json();
-                        // A bit of a hack: The token only contains id/username, but we need the username for the UI.
-                        // We can decode it without verification just for the username.
-                        const payload = JSON.parse(atob(authToken.split('.')[1]));
-                        setCurrentUser({ username: payload.username });
+                        // The backend now returns a comprehensive payload.
+                        const { user, data } = await res.json();
+                        setCurrentUser(user);
                         setUserData(data);
                     } catch (error) {
                         console.error("Session validation failed:", error);
@@ -76,23 +73,16 @@ export const useAuth = (onLoginSuccess?: () => void, openConflictModal?: (data: 
 
     // Effect to manage the real-time WebSocket connection.
     useEffect(() => {
-        // Only connect if in backend mode, user is logged in (has token), and online.
         if (BACKEND_MODE && authToken && navigator.onLine) {
             const newSocket: Socket = io(WEBSOCKET_URL, {
                 auth: { token: authToken }
             });
-
             newSocket.on('connect', () => console.log('Connected to real-time server.'));
             newSocket.on('disconnect', () => console.log('Disconnected from real-time server.'));
-
-            // The server will emit this event with the full, updated user data object.
-            // This ensures the client state is always in sync with the database.
             newSocket.on('user_data_updated', (newUserData: UserData) => {
                 console.log('Real-time data update received from server.');
                 setUserData(newUserData);
             });
-
-            // Cleanup function: disconnects the socket when the token changes (logout) or the component unmounts.
             return () => {
                 newSocket.disconnect();
             };
@@ -113,12 +103,16 @@ export const useAuth = (onLoginSuccess?: () => void, openConflictModal?: (data: 
                 const data = await res.json();
                 if (!res.ok) return data.message || "Registration failed.";
 
-                // Automatically log in the user upon successful registration.
-                if (data.token) {
-                    setAuthToken(data.token);
-                    // The useEffect hook will now fetch user data, and this callback will close the modal.
-                    onLoginSuccess?.(); 
-                }
+                const token = data.token;
+                if (!token) return "Registration failed: No token received from server.";
+                
+                // Set all state for the new user immediately.
+                // New users have empty data, so no need for an extra fetch.
+                setAuthToken(token);
+                setCurrentUser(data.user);
+                setUserData(EMPTY_USER_DATA);
+
+                onLoginSuccess?.(); 
                 return null;
             } catch (error) {
                 return "Could not connect to the server.";
@@ -133,23 +127,38 @@ export const useAuth = (onLoginSuccess?: () => void, openConflictModal?: (data: 
     const login = useCallback(async (username: string, password: string): Promise<string | null> => {
         if (BACKEND_MODE) {
             try {
-                const res = await fetch(`${API_BASE_URL}/auth/login`, {
+                // 1. Authenticate and get token
+                const loginRes = await fetch(`${API_BASE_URL}/auth/login`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ username, password })
                 });
-                const data = await res.json();
-                if (!res.ok) return data.message || "Login failed.";
-                setAuthToken(data.token);
-                // The useEffect watching authToken will handle fetching user data and setting the user.
+                const loginData = await loginRes.json();
+                if (!loginRes.ok) return loginData.message || "Login failed.";
+                
+                const token = loginData.token;
+                if (!token) return "Login failed: No token received from server.";
+
+                // 2. Immediately fetch user data with the new token
+                const dataRes = await fetch(`${API_BASE_URL}/user/data`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                if (!dataRes.ok) return "Login succeeded, but failed to fetch user data.";
+                const { user, data } = await dataRes.json();
+                
+                // 3. Set all state at once to ensure UI updates correctly
+                setAuthToken(token);
+                setCurrentUser(user);
+                setUserData(data);
+                
+                // 4. Call success callback to close modal
                 onLoginSuccess?.();
                 return null;
+
             } catch (error) {
                 return "Could not connect to the server.";
             }
         } else {
-            // Read directly from localStorage to prevent using a potentially stale state
-            // right after registration, which resolves the login issue.
             const usersFromStorage = JSON.parse(window.localStorage.getItem(LOCAL_STORAGE_KEYS.USERS) || '{}');
             if (!usersFromStorage[username] || usersFromStorage[username].password !== password) {
                 return "Invalid username or password.";
@@ -170,7 +179,6 @@ export const useAuth = (onLoginSuccess?: () => void, openConflictModal?: (data: 
         }
     }, [setAuthToken, setLocalLoggedInUser]);
 
-    // --- Generic function for authenticated data updates ---
     const authenticatedUpdate = useCallback(async (endpoint: string, body: object, updateFn: (data: UserData) => UserData) => {
         if (!currentUser) return false;
         
@@ -189,31 +197,20 @@ export const useAuth = (onLoginSuccess?: () => void, openConflictModal?: (data: 
                     body: JSON.stringify(body)
                 });
                  if (res.status === 409) {
-                    // CONFLICT DETECTED!
                     const conflictData = await res.json();
                     openConflictModal?.({
                         endpoint,
                         clientPayload: body,
                         serverVersion: conflictData.serverVersion
                     });
-                    // Do not revert UI, let the user resolve it.
                 } else if (!res.ok) {
-                    // The server responded with a different error (e.g., 401, 500).
-                    // This is not a network error, so the action failed permanently.
-                    // We must revert the optimistic update.
                     console.error('API update failed with status:', res.status);
                     setUserData(oldUserData);
                 }
-                // If res.ok is true, the update was successful, so the optimistic state is correct.
-                // The backend will emit a WebSocket event to update other clients.
             } catch (error) {
-                // The fetch itself failed. This is a network error (e.g., user is offline).
-                // The service worker's BackgroundSyncPlugin will queue this request.
-                // We DO NOT revert the optimistic UI update.
                 console.log('Network error detected. Request queued for background sync.', error);
             }
         } else {
-             // In frontend mode, persist the optimistically updated data to localStorage.
             localStorage.setItem(`${LOCAL_STORAGE_KEYS.USER_DATA_PREFIX}${currentUser.username}`, JSON.stringify(newUserData));
         }
         return true;
@@ -256,14 +253,13 @@ export const useAuth = (onLoginSuccess?: () => void, openConflictModal?: (data: 
     }, [userData, setDramaStatus]);
 
     const setEpisodeReview = useCallback((dramaUrl: string, episodeNumber: number, text: string) => {
-        // Find the `updatedAt` of the current review to send to the server for conflict detection.
         const clientUpdatedAt = userData.episodeReviews?.[dramaUrl]?.[episodeNumber]?.updatedAt || 0;
         
         return authenticatedUpdate(
             '/user/reviews/episodes',
-            { dramaUrl, episodeNumber, text, clientUpdatedAt }, // Send clientUpdatedAt with the payload
+            { dramaUrl, episodeNumber, text, clientUpdatedAt },
             (currentData) => {
-                const newEpisodeReviews = JSON.parse(JSON.stringify(currentData.episodeReviews)); // Deep copy
+                const newEpisodeReviews = JSON.parse(JSON.stringify(currentData.episodeReviews));
                 if (!newEpisodeReviews[dramaUrl]) newEpisodeReviews[dramaUrl] = {};
                 if (text.trim() === '') {
                     delete newEpisodeReviews[dramaUrl][episodeNumber];
@@ -286,20 +282,17 @@ export const useAuth = (onLoginSuccess?: () => void, openConflictModal?: (data: 
         if (!currentUser) return;
     
         if (resolution === 'server') {
-            // Revert the optimistic update to match the server's state.
             setUserData(currentData => {
                 const newEpisodeReviews = JSON.parse(JSON.stringify(currentData.episodeReviews));
                 if (!newEpisodeReviews[clientPayload.dramaUrl]) newEpisodeReviews[clientPayload.dramaUrl] = {};
                 newEpisodeReviews[clientPayload.dramaUrl][clientPayload.episodeNumber] = serverVersion;
                 
-                // Persist the reverted state to localStorage in frontend-only mode.
                 if (!BACKEND_MODE) {
                     localStorage.setItem(`${LOCAL_STORAGE_KEYS.USER_DATA_PREFIX}${currentUser.username}`, JSON.stringify({ ...currentData, episodeReviews: newEpisodeReviews }));
                 }
                 return { ...currentData, episodeReviews: newEpisodeReviews };
             });
         } else { // resolution === 'client'
-            // Re-submit the user's version, but this time with a `force` flag to bypass the conflict check.
             if (BACKEND_MODE) {
                 try {
                     await fetch(`${API_BASE_URL}/user/reviews/episodes`, {
@@ -311,11 +304,9 @@ export const useAuth = (onLoginSuccess?: () => void, openConflictModal?: (data: 
                         body: JSON.stringify({ ...clientPayload, force: true })
                     });
                 } catch (error) {
-                    // If this fails, the service worker will still pick it up.
                     console.error("Forced update failed, will be retried by background sync:", error);
                 }
             }
-            // In frontend-only mode, the optimistic update is already correct, so no action is needed.
         }
     }, [currentUser, authToken]);
     
