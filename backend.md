@@ -15,12 +15,13 @@ This document provides a comprehensive guide to setting up and running the optio
     -   **Password Hashing**: `bcryptjs` to securely store user passwords.
     -   **Configuration**: `dotenv` for managing environment variables.
     -   **Security**: `helmet` for security headers and `express-rate-limit` for request throttling.
+    -   **Clustering**: **Redis** and the **Socket.IO Redis Adapter** to enable real-time communication across multiple processes (essential for PM2 cluster mode).
 
 -   **Functionality**:
     -   Handles user registration and login.
     -   Provides authenticated endpoints for users to manage their data.
     -   **Automatic Migrations**: The database schema is automatically created and updated on server startup.
-    -   **Real-Time Sync**: When a user makes a change on one device, the server instantly pushes a granular update event to all of that user's other logged-in devices.
+    -   **Real-Time Sync**: When a user makes a change on one device, the server instantly pushes a granular update event to all of that user's other logged-in devices, even when running in a multi-process cluster.
     -   Includes logic for **conflict resolution** to support multi-device, offline-first usage.
     -   **Server-Side Processing**: Offloads all heavy filtering, sorting, and pagination logic to the server, sending only the necessary data to the client for a faster, more scalable experience.
 
@@ -28,6 +29,7 @@ This document provides a comprehensive guide to setting up and running the optio
 
 ### Prerequisites
 -   Ensure you have [Node.js](https://nodejs.org/) installed (version 16 or higher is recommended).
+-   Ensure you have a **Redis server** installed and running. Redis is required for the Socket.IO adapter to work. You can [install Redis locally](https://redis.io/docs/getting-started/installation/) or use a cloud-based Redis service.
 
 ### Steps
 1.  **Create a Backend Directory**: In the root of your project, create a new folder named `backend`. All the following commands and file creations will happen inside this `backend` directory.
@@ -39,7 +41,7 @@ This document provides a comprehensive guide to setting up and running the optio
 
 3.  **Install Dependencies**: Install the necessary packages for the server.
     ```bash
-    npm install express sqlite3 cors bcryptjs jsonwebtoken socket.io helmet express-rate-limit dotenv
+    npm install express sqlite3 cors bcryptjs jsonwebtoken socket.io helmet express-rate-limit dotenv redis @socket.io/redis-adapter
     ```
 
 4.  **Install Development Dependency**: Install `nodemon` for automatic server restarts during development.
@@ -57,13 +59,17 @@ This document provides a comprehensive guide to setting up and running the optio
     # For production, this should be your frontend's domain (e.g., "https://your-app-domain.com").
     CORS_ALLOWED_ORIGINS="http://localhost:5173,http://127.0.0.1:5173"
 
+    # The connection string for your Redis server.
+    # This is required for real-time event broadcasting in a multi-process setup (like PM2 cluster).
+    REDIS_URL="redis://localhost:6379"
+
     # A long, random, and secret string for signing JWTs
     # IMPORTANT: Change this to your own unique secret!
     JWT_SECRET="replace-this-with-a-very-long-and-random-string"
 
     # (Optional) The subpath for the Socket.IO server if running behind a reverse proxy sub-directory.
-    # Must start and end with a slash. e.g. /dramaveerse/socket.io/
-    SOCKET_IO_PATH="/dramaveerse/socket.io/"
+    # Must start and end with a slash. e.g. /dramaverse/socket.io/
+    SOCKET_IO_PATH="/dramaverse/socket.io/"
     ```
 
 6.  **Configure `.gitignore`**: Create a `.gitignore` file in the `backend` directory to prevent sensitive files from being committed.
@@ -111,7 +117,7 @@ After setup, your `backend` directory will have this structure:
 Create a file named `server.js` inside the `backend` directory and paste the entire code block below into it.
 
 ### `server.js`
-This single file contains all the logic for the database, authentication, API routes, and real-time communication. It now loads configuration from the `.env` file.
+This single file contains all the logic for the database, authentication, API routes, and real-time communication. It now loads configuration from the `.env` file and uses a Redis adapter for scalable real-time events.
 
 ```javascript
 // --- DEPENDENCIES ---
@@ -126,17 +132,24 @@ const fs = require('fs');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const dotenv = require('dotenv');
+const { createClient } = require("redis");
+const { createAdapter } = require("@socket.io/redis-adapter");
 
 // --- CONFIGURATION ---
 dotenv.config(); // Load environment variables from .env file
 
 const PORT = process.env.PORT || 3001;
 const JWT_SECRET = process.env.JWT_SECRET;
+const REDIS_URL = process.env.REDIS_URL;
 const DB_SOURCE = "dramas.db";
-const SOCKET_IO_PATH = process.env.SOCKET_IO_PATH || '/socket.io/'; // Read subpath from .env
+const SOCKET_IO_PATH = process.env.SOCKET_IO_PATH || '/socket.io/';
 
 if (!JWT_SECRET || JWT_SECRET === "replace-this-with-a-very-long-and-random-string") {
     console.error("FATAL ERROR: JWT_SECRET is not set or is set to the default value in the .env file.");
+    process.exit(1);
+}
+if (!REDIS_URL) {
+    console.error("FATAL ERROR: REDIS_URL is not set in the .env file. It is required for multi-process real-time communication.");
     process.exit(1);
 }
 
@@ -346,8 +359,6 @@ io.on('connection', (socket) => {
     socket.join(`user_${socket.user.id}`);
     console.log(`[Socket.IO Rooms] User '${socket.user.username}' joined room 'user_${socket.user.id}'`);
 
-    // Security Hardening: Add a wildcard listener to log any unexpected, unsolicited events from clients.
-    // In our architecture, clients should not be emitting any events after connection. This serves as a monitor.
     socket.onAny((event, ...args) => {
         console.warn(`[Socket.IO Security] Received unexpected event '${event}' from user '${socket.user.username}' (ID: ${socket.user.id}).`);
     });
@@ -429,7 +440,7 @@ app.get('/api/dramas', (req, res) => {
 
     res.json({
         totalItems,
-        dramas: paginatedItems.map(({ genresSet, tagsSet, castSet, score, ...rest }) => rest), // Remove helper sets and score before sending
+        dramas: paginatedItems.map(({ genresSet, tagsSet, castSet, score, ...rest }) => rest),
         currentPage: pageNum,
         totalPages: Math.ceil(totalItems / limitNum)
     });
@@ -439,7 +450,6 @@ app.use('/api/auth', authLimiter);
 
 app.post('/api/auth/register', (req, res) => {
     const { username, password } = req.body;
-    // Security Hardening: Add strict regex for username validation to prevent injection.
     const usernameRegex = /^[a-zA-Z0-9_.-]{3,20}$/;
     if (typeof username !== 'string' || typeof password !== 'string' || !usernameRegex.test(username) || password.length < 6) { 
         return res.status(400).json({ message: "Invalid input: Username must be 3-20 alphanumeric characters (letters, numbers, _, ., -). Password must be at least 6 characters." }); 
@@ -541,7 +551,16 @@ app.use((err, req, res, next) => {
 async function startServer() {
     try {
         await runMigrations();
-        await loadDramasIntoMemory(); // Load data into cache before starting server
+        await loadDramasIntoMemory();
+
+        const pubClient = createClient({ url: REDIS_URL });
+        const subClient = pubClient.duplicate();
+
+        await Promise.all([pubClient.connect(), subClient.connect()]);
+        
+        io.adapter(createAdapter(pubClient, subClient));
+        console.log("Socket.IO is now using the Redis adapter.");
+
         server.listen(PORT, () => {
             console.log(`Server with real-time support is running on http://localhost:${PORT}`);
         });
@@ -550,19 +569,6 @@ async function startServer() {
         process.exit(1);
     }
 }
-startServer();
-
-process.on('SIGINT', () => {
-    console.log('SIGINT signal received: closing HTTP server and database.');
-    server.close(() => {
-        console.log('HTTP server closed.');
-        db.close((err) => {
-            if (err) console.error('Error closing the database:', err.message);
-            else console.log('Database connection closed.');
-            process.exit(0);
-        });
-    });
-});
 
 // --- SEED SCRIPT RUNNER ---
 if (process.argv.includes('--seed')) {
@@ -576,18 +582,32 @@ if (process.argv.includes('--seed')) {
           db.close();
           process.exit(1);
       });
+} else {
+    startServer();
 }
 
+process.on('SIGINT', () => {
+    console.log('SIGINT signal received: closing HTTP server and database.');
+    server.close(() => {
+        console.log('HTTP server closed.');
+        db.close((err) => {
+            if (err) console.error('Error closing the database:', err.message);
+            else console.log('Database connection closed.');
+            process.exit(0);
+        });
+    });
+});
 ```
 ## 5. Running the Backend
 
 The workflow is now simpler. The database schema is handled automatically.
 
 1.  **Start the Server for Development**:
+    Make sure your Redis server is running first, then start the Node.js server.
     ```bash
     npm run dev
     ```
-    The first time you run this, the server will automatically create the `dramas.db` file, run all necessary schema migrations, and load the drama data into memory before starting.
+    The first time you run this, the server will automatically create the `dramas.db` file, run all necessary schema migrations, connect to Redis, load the drama data into memory, and start the server.
 
 2.  **Seed the Database with Data (One-Time Command)**:
     This command now only populates the tables with data from `dramas.json`. You only need to run this once after the initial setup, or again if you update `dramas.json`.
@@ -597,7 +617,7 @@ The workflow is now simpler. The database schema is handled automatically.
 
 ## 6. Production Deployment with PM2
 
-For production, it is highly recommended to use a process manager like PM2 and to set your `JWT_SECRET` as an environment variable rather than in the `.env` file.
+For production, it is highly recommended to use a process manager like PM2 and to set your `JWT_SECRET` and `REDIS_URL` as environment variables rather than in the `.env` file.
 
 1.  **Install PM2 Globally**:
     ```bash
@@ -605,13 +625,14 @@ For production, it is highly recommended to use a process manager like PM2 and t
     ```
 
 2.  **Start the Production Server**:
-    From your `/backend` directory, run the following command. The server will automatically pick up the `PORT` from your `.env` file, but we will override the `JWT_SECRET` directly on the command line for better security.
+    From your `/backend` directory, run the following command. The server will automatically pick up the `PORT` from your `.env` file, but we will override the secrets directly on the command line for better security.
 
     ```bash
-    JWT_SECRET="your-long-random-super-secret-string-for-production" pm2 start server.js -i max --name "dramaverse-backend"
+    JWT_SECRET="your-long-random-super-secret-string-for-production" REDIS_URL="redis://your-production-redis-host:6379" pm2 start server.js -i max --name "dramaverse-backend"
     ```
     -   `JWT_SECRET=...`: **Crucially, replace this with your own long, random secret.** Setting it here overrides any value in `.env`.
-    -   `-i max`: Enables cluster mode to use all available CPU cores.
+    -   `REDIS_URL=...`: Set this to your production Redis server's URL.
+    -   `-i max`: Enables cluster mode to use all available CPU cores. This is why the Redis adapter is essential.
     -   `--name "..."`: Gives the process a memorable name in PM2.
 
 3.  **Useful PM2 Commands**:
@@ -626,5 +647,6 @@ For production, it is highly recommended to use a process manager like PM2 and t
 
 The security best practices and Nginx reverse proxy configurations from the previous guide are still highly recommended and can be used without any changes. Remember to:
 -   Update the `CORS_ALLOWED_ORIGINS` variable in your `.env` file for your production domain.
--   Use a strong, secret `JWT_SECRET` set via an environment variable.
--   Run your Node.js application behind a reverse proxy like Nginx in production.
+-   Use a strong, secret `JWT_SECRET` and a correct `REDIS_URL` set via an environment variable.
+-   Run your Node.js application behind a reverse proxy like Nginx in production, and ensure it is configured to handle WebSocket upgrade requests correctly.
+-   If you are load-balancing between multiple servers (not just processes on one server), ensure your Nginx configuration **does not** use sticky sessions, as the Redis adapter makes them unnecessary.
