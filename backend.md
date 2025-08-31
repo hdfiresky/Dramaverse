@@ -20,7 +20,7 @@ This document provides a comprehensive guide to setting up and running the optio
     -   Handles user registration and login.
     -   Provides authenticated endpoints for users to manage their data.
     -   **Automatic Migrations**: The database schema is automatically created and updated on server startup.
-    -   **Real-Time Sync**: When a user makes a change on one device, the server instantly pushes the update to all of that user's other logged-in devices.
+    -   **Real-Time Sync**: When a user makes a change on one device, the server instantly pushes a granular update event to all of that user's other logged-in devices.
     -   Includes logic for **conflict resolution** to support multi-device, offline-first usage.
 
 ## 2. Initial Setup
@@ -299,8 +299,6 @@ io.use((socket, next) => {
 });
 
 // --- REAL-TIME & DATA HELPERS ---
-const debouncedUpdateTimers = new Map();
-const DEBOUNCE_DELAY_MS = 500; // Delay to batch rapid updates
 
 io.on('connection', (socket) => {
     console.log(`Real-time client connected: ${socket.user.username} (ID: ${socket.user.id})`);
@@ -313,6 +311,20 @@ io.on('connection', (socket) => {
         console.error(`Socket error for user ${socket.user.username}:`, err.message);
     });
 });
+
+/**
+ * Emits a specific event with a payload to a user's room.
+ * @param {number} userId The ID of the user.
+ * @param {string} event The name of the event to emit.
+ * @param {object} payload The data to send with the event.
+ */
+function emitToUserRoom(userId, event, payload) {
+    if (!userId || !event || !payload) return;
+    const room = `user_${userId}`;
+    io.to(room).emit(event, payload);
+    console.log(`Emitted event '${event}' to room '${room}'`);
+}
+
 
 async function fetchUserData(userId) {
     if (!userId) throw new Error("User ID is required.");
@@ -338,24 +350,6 @@ async function fetchUserData(userId) {
     }
 }
 
-async function emitUserDataUpdate(userId) {
-    if (!userId) return;
-    if (debouncedUpdateTimers.has(userId)) {
-        clearTimeout(debouncedUpdateTimers.get(userId));
-    }
-    const timerId = setTimeout(async () => {
-        try {
-            const userData = await fetchUserData(userId);
-            io.to(`user_${userId}`).emit('user_data_updated', userData);
-            console.log(`(Debounced) Emitted data update to user room: user_${userId}`);
-        } catch (error) {
-            console.error(`(Debounced) Failed to emit data for user ID ${userId}:`, error);
-        } finally {
-            debouncedUpdateTimers.delete(userId);
-        }
-    }, DEBOUNCE_DELAY_MS);
-    debouncedUpdateTimers.set(userId, timerId);
-}
 
 // --- API ENDPOINTS ---
 app.get('/api/health', (req, res) => {
@@ -413,7 +407,9 @@ app.post('/api/user/favorites', (req, res) => {
         : 'DELETE FROM user_favorites WHERE user_id = ? AND drama_url = ?';
     db.run(sql, [req.user.id, dramaUrl], function(err) {
         if (err) return res.status(500).json({ message: 'Database error' });
-        if (this.changes > 0) emitUserDataUpdate(req.user.id);
+        if (this.changes > 0) {
+            emitToUserRoom(req.user.id, 'favorite_updated', { dramaUrl, isFavorite });
+        }
         res.status(200).json({ success: true });
     });
 });
@@ -423,16 +419,21 @@ app.post('/api/user/statuses', (req, res) => {
     if (typeof dramaUrl !== 'string' || typeof status !== 'string' || (currentEpisode !== undefined && typeof currentEpisode !== 'number')) {
          return res.status(400).json({ message: 'Invalid payload.' });
     }
+    const statusInfo = { status, currentEpisode: currentEpisode || 0 };
     if (!status) {
         db.run('DELETE FROM user_statuses WHERE user_id = ? AND drama_url = ?', [req.user.id, dramaUrl], function(err) {
             if (err) return res.status(500).json({ message: 'Database error' });
-            if (this.changes > 0) emitUserDataUpdate(req.user.id);
+            if (this.changes > 0) {
+                emitToUserRoom(req.user.id, 'status_updated', { dramaUrl, statusInfo: null });
+            }
             res.status(200).json({ success: true });
         });
     } else {
         db.run('INSERT OR REPLACE INTO user_statuses (user_id, drama_url, status, currentEpisode) VALUES (?, ?, ?, ?)', [req.user.id, dramaUrl, status, currentEpisode || 0], function(err) {
             if (err) return res.status(500).json({ message: 'Database error' });
-            if (this.changes > 0) emitUserDataUpdate(req.user.id);
+             if (this.changes > 0) {
+                emitToUserRoom(req.user.id, 'status_updated', { dramaUrl, statusInfo });
+            }
             res.status(200).json({ success: true });
         });
     }
@@ -446,7 +447,9 @@ app.post('/api/user/reviews/episodes', (req, res) => {
     if (text.trim() === '') {
         db.run('DELETE FROM user_episode_reviews WHERE user_id = ? AND drama_url = ? AND episode_number = ?', [req.user.id, dramaUrl, episodeNumber], function(err) {
              if (err) return res.status(500).json({ message: 'Database error' });
-             if (this.changes > 0) emitUserDataUpdate(req.user.id);
+             if (this.changes > 0) {
+                 emitToUserRoom(req.user.id, 'episode_review_updated', { dramaUrl, episodeNumber, review: null });
+             }
              res.status(200).json({ success: true });
         });
         return;
@@ -457,9 +460,12 @@ app.post('/api/user/reviews/episodes', (req, res) => {
             return res.status(409).json({ message: 'Conflict detected.', serverVersion: { text: row.review_text, updatedAt: row.updated_at } });
         }
         const newUpdatedAt = Date.now();
-        db.run('INSERT OR REPLACE INTO user_episode_reviews (user_id, drama_url, episode_number, review_text, updated_at) VALUES (?, ?, ?, ?, ?)', [req.user.id, dramaUrl, episodeNumber, text, newUpdatedAt], (err) => {
+        db.run('INSERT OR REPLACE INTO user_episode_reviews (user_id, drama_url, episode_number, review_text, updated_at) VALUES (?, ?, ?, ?, ?)', [req.user.id, dramaUrl, episodeNumber, text, newUpdatedAt], function(err) {
              if (err) return res.status(500).json({ message: 'Database error' });
-             emitUserDataUpdate(req.user.id);
+             if (this.changes > 0) {
+                const review = { text, updatedAt: newUpdatedAt };
+                emitToUserRoom(req.user.id, 'episode_review_updated', { dramaUrl, episodeNumber, review });
+             }
              res.status(200).json({ success: true, newUpdatedAt });
         });
     });

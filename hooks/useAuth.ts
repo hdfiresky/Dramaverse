@@ -7,7 +7,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { useLocalStorage } from './useLocalStorage';
-import { User, UserData, UserDramaStatus, DramaStatus, ConflictData } from '../types';
+import { User, UserData, UserDramaStatus, DramaStatus, ConflictData, EpisodeReview } from '../types';
 import { LOCAL_STORAGE_KEYS } from './lib/constants';
 import { BACKEND_MODE, API_BASE_URL, WEBSOCKET_URL } from '../config';
 
@@ -91,24 +91,67 @@ export const useAuth = (onLoginSuccess?: () => void, openConflictModal?: (data: 
         }
     }, [authToken]);
 
-    // Effect to manage socket event listeners.
+    // Effect to manage socket event listeners for granular real-time updates.
     useEffect(() => {
         if (!socket) return;
 
-        const handleUpdate = (newUserData: UserData) => {
-            console.log('Real-time data update received from server.');
-            setUserData(newUserData);
-        };
-        
         socket.on('connect', () => console.log('Socket connected.'));
         socket.on('disconnect', () => console.log('Socket disconnected.'));
-        socket.on('user_data_updated', handleUpdate);
+        
+        // Listener for favorite updates
+        const handleFavoriteUpdate = ({ dramaUrl, isFavorite }: { dramaUrl: string, isFavorite: boolean }) => {
+            setUserData(currentData => {
+                const newFavorites = isFavorite
+                    ? [...currentData.favorites, dramaUrl]
+                    : currentData.favorites.filter(url => url !== dramaUrl);
+                // Ensure no duplicates
+                return { ...currentData, favorites: [...new Set(newFavorites)] };
+            });
+        };
+
+        // Listener for status updates
+        const handleStatusUpdate = ({ dramaUrl, statusInfo }: { dramaUrl: string, statusInfo: UserDramaStatus }) => {
+            setUserData(currentData => {
+                const newStatuses = { ...currentData.statuses };
+                if (!statusInfo || !statusInfo.status) {
+                    delete newStatuses[dramaUrl];
+                } else {
+                    newStatuses[dramaUrl] = statusInfo;
+                }
+                return { ...currentData, statuses: newStatuses };
+            });
+        };
+
+        // Listener for episode review updates
+        const handleEpisodeReviewUpdate = ({ dramaUrl, episodeNumber, review }: { dramaUrl: string, episodeNumber: number, review: EpisodeReview | null }) => {
+            setUserData(currentData => {
+                const newEpisodeReviews = JSON.parse(JSON.stringify(currentData.episodeReviews));
+                if (!newEpisodeReviews[dramaUrl]) {
+                    newEpisodeReviews[dramaUrl] = {};
+                }
+                if (review === null) {
+                    delete newEpisodeReviews[dramaUrl][episodeNumber];
+                     if (Object.keys(newEpisodeReviews[dramaUrl]).length === 0) {
+                        delete newEpisodeReviews[dramaUrl];
+                    }
+                } else {
+                    newEpisodeReviews[dramaUrl][episodeNumber] = review;
+                }
+                return { ...currentData, episodeReviews: newEpisodeReviews };
+            });
+        };
+
+        socket.on('favorite_updated', handleFavoriteUpdate);
+        socket.on('status_updated', handleStatusUpdate);
+        socket.on('episode_review_updated', handleEpisodeReviewUpdate);
 
         // Cleanup listeners when the socket instance changes or component unmounts.
         return () => {
             socket.off('connect');
             socket.off('disconnect');
-            socket.off('user_data_updated', handleUpdate);
+            socket.off('favorite_updated', handleFavoriteUpdate);
+            socket.off('status_updated', handleStatusUpdate);
+            socket.off('episode_review_updated', handleEpisodeReviewUpdate);
         };
     }, [socket]);
 
