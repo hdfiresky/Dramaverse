@@ -28,7 +28,7 @@ interface DramaDetailModalProps {
     /** The current user's data. */
     userData: UserData;
     /** Callback to set the user's status for this drama. */
-    onSetStatus: (url: string, status: UserDramaStatus) => void;
+    onSetStatus: (url: string, status: Omit<UserDramaStatus, 'updatedAt'>) => void;
     /** Callback to toggle the favorite status for this drama. */
     onToggleFavorite: (url: string) => void;
     /** The currently logged-in user, or null. */

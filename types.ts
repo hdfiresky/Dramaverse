@@ -119,6 +119,8 @@ export interface UserDramaStatus {
   status: DramaStatus;
   /** The episode number the user is currently on (optional). */
   currentEpisode?: number;
+  /** A UTC timestamp of when the status was last updated. */
+  updatedAt: number;
 }
 
 /**
@@ -153,6 +155,8 @@ export interface UserData {
   reviews: Record<string, UserReview>;
   /** A record mapping a drama URL to its episode-specific reviews. */
   episodeReviews: Record<string, Record<number, EpisodeReview>>; // { dramaUrl: { episodeNumber: reviewObject } }
+  /** A record mapping a list category to the timestamp it was last updated. */
+  listUpdateTimestamps: Record<string, number>;
 }
 
 /**

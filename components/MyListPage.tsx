@@ -3,10 +3,9 @@
  * personalized collections of dramas in a tabbed view. This page is only
  * accessible to logged-in users.
  */
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Drama, UserData, DramaStatus } from '../types';
 import { DramaCard } from './DramaCard';
-import { useWindowSize } from '../hooks/useWindowSize';
 import { EyeIcon, BookmarkIcon, CheckCircleIcon, HeartIcon, PauseIcon, XCircleIcon } from './Icons';
 
 interface MyListPageProps {
@@ -32,8 +31,8 @@ const tabConfig: Record<DramaStatus | 'Favorites', { icon: React.FC<any>, label:
     [DramaStatus.Dropped]: { icon: XCircleIcon, label: DramaStatus.Dropped },
 };
 
-// Defines the order of the tabs in the navigation.
-const TABS_ORDER: (DramaStatus | 'Favorites')[] = [
+// Defines the default order of the filters in the navigation.
+const FILTERS_ORDER: (DramaStatus | 'Favorites')[] = [
     DramaStatus.Watching, 
     DramaStatus.PlanToWatch, 
     DramaStatus.Completed, 
@@ -43,35 +42,52 @@ const TABS_ORDER: (DramaStatus | 'Favorites')[] = [
 ];
 
 /**
- * A component that renders a multi-tabbed view of a user's personal drama lists.
- * This includes tabs for Watching, Plan to Watch, Completed, Favorites, and more.
+ * Helper function to determine which filter should be active by default.
+ * It selects the filter corresponding to the list that was most recently updated.
+ * @param {UserData} userData - The current user's data.
+ * @returns {DramaStatus | 'Favorites'} The key of the filter to be activated.
+ */
+const getInitialFilter = (userData: UserData): DramaStatus | 'Favorites' => {
+    const timestamps = userData.listUpdateTimestamps || {};
+    const keys = Object.keys(timestamps);
+
+    if (keys.length === 0) {
+        return FILTERS_ORDER[0]; // Default to the first item if no updates have occurred.
+    }
+
+    // Find the key (list name) with the highest timestamp (most recent update).
+    return keys.reduce((a, b) => timestamps[a] > timestamps[b] ? a : b) as DramaStatus | 'Favorites';
+};
+
+
+/**
+ * A component that renders a filterable view of a user's personal drama lists.
+ * It features a dynamic filter bar that is more streamlined than the previous tab system.
  *
  * @param {MyListPageProps} props - The props for the MyListPage component.
  * @returns {React.ReactElement} The rendered My List page.
  */
 export const MyListPage: React.FC<MyListPageProps> = ({ allDramas, userData, onSelectDrama, onToggleFavorite, onTogglePlanToWatch }) => {
-    // State to keep track of the currently active tab. Defaults to 'Watching'.
-    const [activeTab, setActiveTab] = useState<DramaStatus | 'Favorites'>(DramaStatus.Watching);
-    const { width } = useWindowSize();
-    const isMobile = width < 768; // Tailwind's 'md' breakpoint.
+    // State to keep track of the currently active filter, initialized with the most recently updated list.
+    const [activeFilter, setActiveFilter] = useState<DramaStatus | 'Favorites'>(() => getInitialFilter(userData));
+    
+    // Effect to update the active filter if the user data changes (e.g., after an update on another tab).
+    // This ensures the view stays in sync with the latest activity.
+    useEffect(() => {
+        setActiveFilter(getInitialFilter(userData));
+    }, [userData.listUpdateTimestamps]);
 
     // Memoize the categorized lists of dramas to prevent re-computation on every render.
-    // This only recalculates if the source drama list or the user's data changes.
     const dramasByStatus = useMemo(() => {
-        // Initialize an object to hold an array of dramas for each status category.
         const lists: Record<DramaStatus | 'Favorites', Drama[]> = { [DramaStatus.Watching]: [], [DramaStatus.Completed]: [], [DramaStatus.OnHold]: [], [DramaStatus.Dropped]: [], [DramaStatus.PlanToWatch]: [], Favorites: [] };
-        
-        // Create a Map for efficient O(1) average time complexity lookups of drama details by URL.
         const dramaMap = new Map(allDramas.map(d => [d.url, d]));
 
-        // Populate lists based on the user's statuses.
         for (const url in userData.statuses) {
             const drama = dramaMap.get(url);
-            if (drama) {
+            if (drama && userData.statuses[url].status) {
                 lists[userData.statuses[url].status].push(drama);
             }
         }
-        // Populate the separate Favorites list.
         for (const url of userData.favorites) {
             const drama = dramaMap.get(url);
             if (drama) {
@@ -79,60 +95,73 @@ export const MyListPage: React.FC<MyListPageProps> = ({ allDramas, userData, onS
             }
         }
         return lists;
-    }, [allDramas, userData]);
+    }, [allDramas, userData.favorites, userData.statuses]);
 
-    const activeList = dramasByStatus[activeTab];
+    const activeList = dramasByStatus[activeFilter];
+
+    const totalDramasInAllLists = useMemo(() => {
+        return FILTERS_ORDER.reduce((sum, key) => sum + dramasByStatus[key].length, 0);
+    }, [dramasByStatus]);
+    
+    // Memoize the sorted order of filters based on last update time.
+    const sortedFilters = useMemo(() => {
+        const timestamps = userData.listUpdateTimestamps || {};
+        return [...FILTERS_ORDER].sort((a, b) => {
+            const timeA = timestamps[a] || 0;
+            const timeB = timestamps[b] || 0;
+            return timeB - timeA; // Sort descending by timestamp (most recent first).
+        });
+    }, [userData.listUpdateTimestamps]);
+
 
     return (
         <div className="w-full animate-fade-in">
             <div className="mb-6">
                 <h2 className="text-3xl font-bold text-brand-text-primary">
-                    My List: {activeTab}
+                    My List: {activeFilter}
                 </h2>
                 <p className="text-md text-brand-text-secondary mt-1">
                     {activeList.length} {activeList.length === 1 ? 'drama' : 'dramas'}
                 </p>
             </div>
-            {/* Tab Navigation Bar - responsive */}
-            <div className="border-b border-gray-700 mb-6">
-                <nav className={isMobile ? "flex justify-around" : "-mb-px flex space-x-6 overflow-x-auto custom-scrollbar"}>
-                    {TABS_ORDER.map(tabKey => {
-                        const config = tabConfig[tabKey];
-                        const count = dramasByStatus[tabKey].length;
-                        const isActive = activeTab === tabKey;
-                        
+
+            {/* New Dynamic Filter Bar */}
+            <div className="mb-6">
+                <div className="flex items-center gap-2 sm:gap-3 overflow-x-auto custom-scrollbar pb-3 -mb-3">
+                    {sortedFilters.map(filterKey => {
+                        const config = tabConfig[filterKey];
+                        const count = dramasByStatus[filterKey].length;
+                        const isActive = activeFilter === filterKey;
+
+                        if (count === 0 && totalDramasInAllLists > 0) {
+                            return null;
+                        }
+
                         return (
                             <button
-                                key={tabKey}
-                                onClick={() => setActiveTab(tabKey)}
-                                title={`${config.label} (${count})`}
-                                aria-label={`${config.label} (${count})`}
-                                className={
-                                    isMobile
-                                        ? `flex flex-col items-center justify-center flex-1 gap-1 p-2 rounded-lg transition-colors duration-200 ${
-                                            isActive ? 'text-brand-accent' : 'text-brand-text-secondary hover:text-brand-text-primary'
-                                        }`
-                                        : `whitespace-nowrap py-4 px-2 border-b-2 text-sm transition-colors ${
-                                            isActive
-                                                ? 'border-brand-accent text-brand-text-primary font-semibold'
-                                                : 'border-transparent text-brand-text-secondary hover:text-brand-text-primary hover:border-slate-400 font-medium'
-                                        }`
-                                }
+                                key={filterKey}
+                                onClick={() => setActiveFilter(filterKey)}
+                                className={`flex-shrink-0 flex items-center gap-2 py-2 px-3 rounded-lg text-sm font-semibold transition-colors duration-200 ${
+                                    isActive
+                                        ? 'bg-brand-accent text-white shadow-md'
+                                        : 'bg-brand-secondary text-brand-text-secondary hover:bg-brand-primary hover:text-brand-text-primary'
+                                }`}
+                                aria-pressed={isActive}
                             >
-                                {isMobile ? (
-                                    <>
-                                        <config.icon className="w-6 h-6" />
-                                        <span className={`text-xs ${isActive ? 'font-bold' : ''}`}>{count}</span>
-                                    </>
-                                ) : (
-                                    `${config.label} (${count})`
-                                )}
+                                <config.icon className="w-5 h-5" />
+                                <span>{config.label}</span>
+                                <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${
+                                    isActive ? 'bg-white/20' : 'bg-brand-primary'
+                                }`}>
+                                    {count}
+                                </span>
                             </button>
                         );
                     })}
-                </nav>
+                </div>
             </div>
-            {/* Grid to display the dramas for the currently active tab */}
+            
+            {/* Grid to display the dramas for the currently active filter */}
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-6">
                 {activeList.length > 0 ? (
                     activeList.map(drama => (

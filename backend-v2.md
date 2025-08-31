@@ -190,7 +190,7 @@ const migrations = [
     `CREATE TABLE IF NOT EXISTS users (id INT PRIMARY KEY AUTO_INCREMENT, username VARCHAR(255) UNIQUE NOT NULL, password VARCHAR(255) NOT NULL, is_admin TINYINT(1) DEFAULT 0 NOT NULL, is_banned TINYINT(1) DEFAULT 0 NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)`,
     `CREATE TABLE IF NOT EXISTS dramas (url VARCHAR(255) PRIMARY KEY, title VARCHAR(255), data JSON)`,
     `CREATE TABLE IF NOT EXISTS user_favorites (user_id INT, drama_url VARCHAR(255), PRIMARY KEY (user_id, drama_url), FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE, FOREIGN KEY (drama_url) REFERENCES dramas(url) ON DELETE CASCADE)`,
-    `CREATE TABLE IF NOT EXISTS user_statuses (user_id INT, drama_url VARCHAR(255), status VARCHAR(255), currentEpisode INT, PRIMARY KEY (user_id, drama_url), FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE, FOREIGN KEY (drama_url) REFERENCES dramas(url) ON DELETE CASCADE)`,
+    `CREATE TABLE IF NOT EXISTS user_statuses (user_id INT, drama_url VARCHAR(255), status VARCHAR(255), currentEpisode INT, updated_at BIGINT, PRIMARY KEY (user_id, drama_url), FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE, FOREIGN KEY (drama_url) REFERENCES dramas(url) ON DELETE CASCADE)`,
     `CREATE TABLE IF NOT EXISTS user_episode_reviews (user_id INT, drama_url VARCHAR(255), episode_number INT, review_text TEXT, updated_at BIGINT, PRIMARY KEY (user_id, drama_url, episode_number), FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE, FOREIGN KEY (drama_url) REFERENCES dramas(url) ON DELETE CASCADE)`
 ];
 
@@ -333,19 +333,31 @@ function emitToUserRoom(userId, event, payload) {
 
 async function fetchUserData(userId) {
     if (!userId) throw new Error("User ID is required.");
-    const userData = { favorites: [], statuses: {}, reviews: {}, episodeReviews: {} };
+    const userData = { favorites: [], statuses: {}, reviews: {}, episodeReviews: {}, listUpdateTimestamps: {} };
     
     const [favRows] = await db.query('SELECT drama_url FROM user_favorites WHERE user_id = ?', [userId]);
     userData.favorites = favRows.map(f => f.drama_url);
 
     const [statusRows] = await db.query('SELECT * FROM user_statuses WHERE user_id = ?', [userId]);
-    statusRows.forEach(s => { userData.statuses[s.drama_url] = { status: s.status, currentEpisode: s.currentEpisode }; });
+    statusRows.forEach(s => { 
+        userData.statuses[s.drama_url] = { 
+            status: s.status, 
+            currentEpisode: s.currentEpisode,
+            updatedAt: s.updated_at 
+        }; 
+        if (s.updated_at) {
+            userData.listUpdateTimestamps[s.status] = Math.max(userData.listUpdateTimestamps[s.status] || 0, s.updated_at);
+        }
+    });
 
     const [reviewRows] = await db.query('SELECT * FROM user_episode_reviews WHERE user_id = ?', [userId]);
     reviewRows.forEach(r => {
         if (!userData.episodeReviews[r.drama_url]) userData.episodeReviews[r.drama_url] = {};
         userData.episodeReviews[r.drama_url][r.episode_number] = { text: r.review_text, updatedAt: r.updated_at };
     });
+
+    // Note: Timestamps for 'Favorites' list are not stored per-item, so we cannot derive it here.
+    // The frontend's optimistic updates will handle the dynamic sorting for favorites.
 
     return userData;
 }
@@ -544,13 +556,22 @@ app.post('/api/user/favorites', async (req, res) => {
 
 app.post('/api/user/statuses', async (req, res) => {
     const { dramaUrl, status, currentEpisode } = req.body;
-    const statusInfo = { status, currentEpisode: currentEpisode || 0 };
+    const updatedAt = Date.now();
+    const statusInfo = { status, currentEpisode: currentEpisode || 0, updatedAt };
+
     if (!status) {
         const [result] = await db.execute('DELETE FROM user_statuses WHERE user_id = ? AND drama_url = ?', [req.user.id, dramaUrl]);
-        if (result.affectedRows > 0) emitToUserRoom(req.user.id, 'status_updated', { dramaUrl, statusInfo: null });
+        if (result.affectedRows > 0) {
+            emitToUserRoom(req.user.id, 'status_updated', { dramaUrl, statusInfo: null });
+        }
     } else {
-        const [result] = await db.execute('INSERT INTO user_statuses (user_id, drama_url, status, currentEpisode) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE status=VALUES(status), currentEpisode=VALUES(currentEpisode)', [req.user.id, dramaUrl, status, currentEpisode || 0]);
-        if (result.affectedRows > 0) emitToUserRoom(req.user.id, 'status_updated', { dramaUrl, statusInfo });
+        const [result] = await db.execute(
+            'INSERT INTO user_statuses (user_id, drama_url, status, currentEpisode, updated_at) VALUES (?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE status=VALUES(status), currentEpisode=VALUES(currentEpisode), updated_at=VALUES(updated_at)', 
+            [req.user.id, dramaUrl, status, currentEpisode || 0, updatedAt]
+        );
+        if (result.affectedRows > 0) {
+            emitToUserRoom(req.user.id, 'status_updated', { dramaUrl, statusInfo });
+        }
     }
     res.status(200).json({ success: true });
 });

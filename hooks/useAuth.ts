@@ -11,7 +11,7 @@ import { User, UserData, UserDramaStatus, DramaStatus, ConflictData, EpisodeRevi
 import { LOCAL_STORAGE_KEYS } from './lib/constants';
 import { BASE_PATH, BACKEND_MODE, API_BASE_URL, WEBSOCKET_URL, ENABLE_DEBUG_LOGGING } from '../config';
 
-const EMPTY_USER_DATA: UserData = { favorites: [], statuses: {}, reviews: {}, episodeReviews: {} };
+const EMPTY_USER_DATA: UserData = { favorites: [], statuses: {}, reviews: {}, episodeReviews: {}, listUpdateTimestamps: {} };
 
 // A helper type for the user object stored in localStorage in frontend-only mode.
 interface LocalStoredUser {
@@ -157,7 +157,7 @@ export const useAuth = (onLoginSuccess?: () => void, openConflictModal?: (data: 
         };
 
         // Listener for status updates
-        const handleStatusUpdate = ({ dramaUrl, statusInfo }: { dramaUrl: string, statusInfo: UserDramaStatus }) => {
+        const handleStatusUpdate = ({ dramaUrl, statusInfo }: { dramaUrl: string, statusInfo: UserDramaStatus | null }) => {
             if (ENABLE_DEBUG_LOGGING) console.log('%c[Socket.IO] Received event: status_updated', 'color: #9c27b0;', { dramaUrl, statusInfo });
             setUserData(currentData => {
                 const newStatuses = { ...currentData.statuses };
@@ -359,26 +359,45 @@ export const useAuth = (onLoginSuccess?: () => void, openConflictModal?: (data: 
                 const newFavorites = isFavorite
                     ? currentData.favorites.filter(url => url !== dramaUrl)
                     : [...currentData.favorites, dramaUrl];
-                return { ...currentData, favorites: newFavorites };
+                const newListUpdateTimestamps = {
+                    ...currentData.listUpdateTimestamps,
+                    ['Favorites']: Date.now(),
+                };
+                return { ...currentData, favorites: newFavorites, listUpdateTimestamps: newListUpdateTimestamps };
             }
         );
     }, [userData, authenticatedUpdate]);
 
-    const setDramaStatus = useCallback((dramaUrl: string, statusInfo: UserDramaStatus) => {
+    const setDramaStatus = useCallback((dramaUrl: string, statusInfo: Omit<UserDramaStatus, 'updatedAt'>) => {
+        const oldStatus = userData.statuses[dramaUrl]?.status;
+        const newStatus = statusInfo.status;
+        const now = Date.now();
+        const statusWithTimestamp: UserDramaStatus = { ...statusInfo, updatedAt: now };
+
         return authenticatedUpdate(
             '/user/statuses',
             { dramaUrl, status: statusInfo.status, currentEpisode: statusInfo.currentEpisode },
             (currentData) => {
                 const newStatuses = { ...currentData.statuses };
-                if (!statusInfo.status) {
+                const newListUpdateTimestamps = { ...currentData.listUpdateTimestamps };
+                
+                if (!newStatus) { // Status is being removed
                     delete newStatuses[dramaUrl];
-                } else {
-                    newStatuses[dramaUrl] = statusInfo;
+                    if (oldStatus) {
+                        newListUpdateTimestamps[oldStatus] = now;
+                    }
+                } else { // Status is being added or changed
+                    newStatuses[dramaUrl] = statusWithTimestamp;
+                    newListUpdateTimestamps[newStatus] = now;
+                    // Also update the timestamp for the list the drama was moved FROM
+                    if (oldStatus && oldStatus !== newStatus) {
+                        newListUpdateTimestamps[oldStatus] = now;
+                    }
                 }
-                return { ...currentData, statuses: newStatuses };
+                return { ...currentData, statuses: newStatuses, listUpdateTimestamps: newListUpdateTimestamps };
             }
         );
-    }, [authenticatedUpdate]);
+    }, [authenticatedUpdate, userData.statuses]);
 
     const togglePlanToWatch = useCallback((dramaUrl: string) => {
         const isCurrentlyPlanToWatch = userData.statuses[dramaUrl]?.status === DramaStatus.PlanToWatch;
