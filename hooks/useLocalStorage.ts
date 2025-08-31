@@ -4,7 +4,7 @@
  * making components cleaner and state persistence reusable. It is a generic
  * hook that can store any serializable data type.
  */
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 
 /**
  * A custom hook that syncs a state value with localStorage.
@@ -34,25 +34,27 @@ export const useLocalStorage = <T,>(key: string, initialValue: T): [T, React.Dis
 
     /**
      * A wrapped version of useState's setter function that also persists the new value to localStorage.
-     * This function can accept a new value directly or a function that receives the current state
-     * and returns the new state, just like the standard `useState` setter.
+     * This function is memoized with `useCallback` to ensure it has a stable identity across re-renders,
+     * preventing it from causing unnecessary re-renders or infinite loops in dependency arrays.
      *
      * @param {T | ((val: T) => T)} value The new value or a function that returns the new value.
      */
-    const setValue = (value: T | ((val: T) => T)) => {
+    const setValue = useCallback((value: T | ((val: T) => T)) => {
         try {
-            // Allow the value to be a function, providing the same API as the standard useState setter.
-            // This is important for updates that depend on the previous state.
-            const valueToStore = value instanceof Function ? value(storedValue) : value;
-            // Update the component's state, which will trigger a re-render.
-            setStoredValue(valueToStore);
-            // Persist the new value to local storage as a JSON string.
-            window.localStorage.setItem(key, JSON.stringify(valueToStore));
+            // Use the functional update form of `useState`'s setter. This allows us to get the
+            // previous state without having to include `storedValue` in the `useCallback` dependency array.
+            setStoredValue(prevValue => {
+                const valueToStore = value instanceof Function ? value(prevValue) : value;
+                // Persist the new value to local storage as a JSON string.
+                window.localStorage.setItem(key, JSON.stringify(valueToStore));
+                // Return the new value to update the state.
+                return valueToStore;
+            });
         } catch (error) {
             // Log any errors that occur during the process, e.g., if localStorage is full.
             console.error(`Error setting localStorage key “${key}”:`, error);
         }
-    };
+    }, [key]); // The key is the only dependency. Since it's stable, `setValue` will be created only once.
 
     return [storedValue, setValue];
 };

@@ -24,7 +24,11 @@ export const API_BASE_URL = 'api';
 /**
  * The URL for the backend WebSocket server.
  * This is only used when BACKEND_MODE is true.
- * An empty string defaults to the current host, which is correct
- * for a reverse proxy setup.
+ *
+ * An empty string is the correct and intended value for most deployments.
+ * It instructs the Socket.IO client to connect to the same host and port
+ * that served the web page. This works seamlessly when the frontend
+ * and backend are served from the same domain, typically using a
+ * reverse proxy like Nginx to route `/socket.io/` requests to the Node.js server.
  */
 export const WEBSOCKET_URL = '';
