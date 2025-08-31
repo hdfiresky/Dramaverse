@@ -249,16 +249,16 @@ const server = http.createServer(app);
 
 // --- SECURITY & CORE MIDDLEWARE (ORDER IS IMPORTANT) ---
 // 1. Trust proxy headers (for rate limiting behind a reverse proxy like Nginx)
-app.set('trust proxy', 1);
+app.set('trust proxy', 1); 
 
 // 2. Set security-related HTTP headers
 app.use(helmet());
 
-// 3. Handle Cross-Origin Resource Sharing
-app.use(cors(corsOptions));
-
-// 4. Parse JSON request bodies
+// 3. Parse JSON request bodies
 app.use(express.json());
+
+// 4. Handle Cross-Origin Resource Sharing
+app.use(cors(corsOptions));
 
 // 5. Rate Limiting
 const apiLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 200, standardHeaders: true, legacyHeaders: false, message: 'Too many requests, please try again after 15 minutes.' });
@@ -298,6 +298,9 @@ io.use((socket, next) => {
 });
 
 // --- REAL-TIME & DATA HELPERS ---
+const debouncedUpdateTimers = new Map();
+const DEBOUNCE_DELAY_MS = 500; // Delay to batch rapid updates
+
 io.on('connection', (socket) => {
     console.log(`Real-time client connected: ${socket.user.username} (ID: ${socket.user.id})`);
     socket.join(`user_${socket.user.id}`);
@@ -336,13 +339,29 @@ async function fetchUserData(userId) {
 
 async function emitUserDataUpdate(userId) {
     if (!userId) return;
-    try {
-        const userData = await fetchUserData(userId);
-        io.to(`user_${userId}`).emit('user_data_updated', userData);
-        console.log(`Emitted data update to user room: user_${userId}`);
-    } catch (error) {
-        console.error(`Failed to emit data for user ID ${userId}:`, error);
+
+    // If there's already a timer for this user, clear it.
+    // We'll reset it, effectively debouncing the event to prevent "sync storms".
+    if (debouncedUpdateTimers.has(userId)) {
+        clearTimeout(debouncedUpdateTimers.get(userId));
     }
+
+    // Set a new timer.
+    const timerId = setTimeout(async () => {
+        try {
+            const userData = await fetchUserData(userId);
+            io.to(`user_${userId}`).emit('user_data_updated', userData);
+            console.log(`(Debounced) Emitted data update to user room: user_${userId}`);
+        } catch (error) {
+            console.error(`(Debounced) Failed to emit data for user ID ${userId}:`, error);
+        } finally {
+            // Clean up the timer from the map once it has run.
+            debouncedUpdateTimers.delete(userId);
+        }
+    }, DEBOUNCE_DELAY_MS);
+
+    // Store the new timer ID.
+    debouncedUpdateTimers.set(userId, timerId);
 }
 
 // --- API ENDPOINTS ---
