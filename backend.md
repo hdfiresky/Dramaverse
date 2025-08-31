@@ -147,8 +147,20 @@ if (CORS_ALLOWED_ORIGINS) {
     console.warn('WARN: CORS_ALLOWED_ORIGINS is not set in the .env file. Using default development origins.');
 }
 
+const corsOptions = {
+    origin: (origin, callback) => {
+        // Allow requests with no origin (like mobile apps or curl requests)
+        if (!origin || allowedOrigins.includes(origin)) {
+            callback(null, true);
+        } else {
+            callback(new Error('Not allowed by CORS'));
+        }
+    },
+    methods: ['GET', 'POST', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+};
+
 // --- DATABASE MIGRATIONS ---
-// New migrations can be added to this array. They will be run in order.
 const migrations = [
     `CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE, password TEXT)`,
     `CREATE TABLE IF NOT EXISTS dramas (url TEXT PRIMARY KEY, title TEXT, data TEXT)`,
@@ -166,7 +178,6 @@ const db = new sqlite3.Database(DB_SOURCE, (err) => {
     console.log('Connected to the SQLite database.');
 });
 
-// Function to run migrations
 async function runMigrations() {
     return new Promise((resolve, reject) => {
         db.serialize(() => {
@@ -226,36 +237,31 @@ function seedDatabase() {
     });
 }
 
-// Check for command line flag to run seed
 if (process.argv.includes('--seed')) {
     seedDatabase().then(() => db.close()).catch(err => console.error("Seeding failed:", err));
-    return; // Exit the script after seeding
+    return;
 }
 
 // --- EXPRESS & SOCKET.IO SERVER SETUP ---
 const app = express();
 const server = http.createServer(app);
 
-// --- SECURITY MIDDLEWARE ---
+// --- SECURITY & CORE MIDDLEWARE (ORDER IS IMPORTANT) ---
+// 1. Set security-related HTTP headers
 app.use(helmet());
-const corsOptions = {
-    origin: (origin, callback) => {
-        if (!origin || allowedOrigins.includes(origin)) {
-            callback(null, true);
-        } else {
-            callback(new Error('Not allowed by CORS'));
-        }
-    },
-    methods: ['GET', 'POST', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
-};
+// 2. Handle Cross-Origin Resource Sharing
 app.use(cors(corsOptions));
-app.options('*', cors(corsOptions));
+// 3. Parse JSON request bodies
+app.use(express.json());
+
+// 4. Rate Limiting
 const apiLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 200, standardHeaders: true, legacyHeaders: false, message: 'Too many requests, please try again after 15 minutes.' });
 const authLimiter = rateLimit({ windowMs: 30 * 60 * 1000, max: 10, message: 'Too many authentication attempts, please try again after 30 minutes.' });
 
-app.use('/api/user', apiLimiter);
-app.use(express.json());
+// Apply rate limiting to specific routes
+app.use('/api/auth', authLimiter);
+app.use('/api', apiLimiter);
+
 
 const io = new Server(server, { cors: corsOptions });
 
@@ -275,12 +281,10 @@ const authMiddleware = (req, res, next) => {
 io.use((socket, next) => {
     const token = socket.handshake.auth.token;
     console.log(`Socket connection attempt with token: ${!!token}`);
-
     if (!token) {
         console.error("Socket Auth Error: No token provided.");
         return next(new Error('auth_error_no_token'));
     }
-
     jwt.verify(token, JWT_SECRET, (err, decoded) => {
         if (err) {
             console.error("Socket Auth Error: Invalid token.", err.message);
@@ -295,13 +299,10 @@ io.use((socket, next) => {
 io.on('connection', (socket) => {
     console.log(`Real-time client connected: ${socket.user.username} (ID: ${socket.user.id})`);
     socket.join(`user_${socket.user.id}`);
-    
     socket.emit('authenticated');
-
     socket.on('disconnect', (reason) => {
         console.log(`Real-time client disconnected: ${socket.user.username}. Reason: ${reason}`);
     });
-
     socket.on('error', (err) => {
         console.error(`Socket error for user ${socket.user.username}:`, err.message);
     });
@@ -343,7 +344,7 @@ async function emitUserDataUpdate(userId) {
 }
 
 // --- API ENDPOINTS ---
-app.post('/api/auth/register', authLimiter, (req, res) => {
+app.post('/api/auth/register', (req, res) => {
     const { username, password } = req.body;
     if (typeof username !== 'string' || typeof password !== 'string' || username.length < 3 || password.length < 6) {
         return res.status(400).json({ message: "Invalid input: Username must be at least 3 characters and password at least 6 characters." });
@@ -357,7 +358,7 @@ app.post('/api/auth/register', authLimiter, (req, res) => {
     });
 });
 
-app.post('/api/auth/login', authLimiter, (req, res) => {
+app.post('/api/auth/login', (req, res) => {
     const { username, password } = req.body;
     if (typeof username !== 'string' || typeof password !== 'string' || !username || !password) {
         return res.status(400).json({ message: "Username and password are required." });
@@ -445,7 +446,6 @@ app.post('/api/user/reviews/episodes', authMiddleware, (req, res) => {
 });
 
 // --- GLOBAL ERROR HANDLER ---
-// This should be the last middleware
 app.use((err, req, res, next) => {
     console.error("An unexpected error occurred:", err.stack);
     res.status(500).json({ message: 'Something broke! A server error occurred.' });
