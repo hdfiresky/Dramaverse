@@ -36,6 +36,8 @@ interface HeaderProps {
     onGoToMyList: () => void;
     /** Function to handle navigation to the all reviews page. */
     onGoToAllReviews: () => void;
+    /** Function to handle navigation to the admin panel. */
+    onGoToAdminPanel: () => void;
     /** The current user object, or null if no one is logged in. */
     currentUser: User | null;
     /** Function to open the authentication modal. */
@@ -54,7 +56,7 @@ interface HeaderProps {
  * @param {HeaderProps} props - The props for the Header component.
  * @returns {React.ReactElement} The rendered header element.
  */
-export const Header: React.FC<HeaderProps> = ({ onGoHome, onGoToMyList, onGoToAllReviews, currentUser, onLoginClick, onLogout, theme, toggleTheme }) => (
+export const Header: React.FC<HeaderProps> = ({ onGoHome, onGoToMyList, onGoToAllReviews, onGoToAdminPanel, currentUser, onLoginClick, onLogout, theme, toggleTheme }) => (
     <header className="bg-brand-secondary/80 backdrop-blur-sm sticky top-0 z-30 shadow-md dark:shadow-none">
         <div className="h-16 flex items-center justify-between px-4 sm:px-6 lg:px-8">
             {/* Site Title/Logo - navigates home on click */}
@@ -90,6 +92,16 @@ export const Header: React.FC<HeaderProps> = ({ onGoHome, onGoToMyList, onGoToAl
                         >
                             <ChatBubbleOvalLeftEllipsisIcon className="w-6 h-6" />
                         </button>
+                        {currentUser.isAdmin && (
+                            <button 
+                                onClick={onGoToAdminPanel}
+                                className="px-3 py-2 text-sm font-semibold bg-yellow-500/20 text-yellow-300 hover:bg-yellow-500/40 rounded-md transition-colors"
+                                title="Admin Panel"
+                                aria-label="Go to Admin Panel"
+                            >
+                                Admin
+                            </button>
+                        )}
                     </div>
                 )}
                 

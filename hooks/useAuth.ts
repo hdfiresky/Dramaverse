@@ -174,40 +174,8 @@ export const useAuth = (onLoginSuccess?: () => void, openConflictModal?: (data: 
         };
     }, [socket]);
 
-
-    const register = useCallback(async (username: string, password: string): Promise<string | null> => {
-        if (!username || !password) return "Username and password cannot be empty.";
-        
-        if (BACKEND_MODE) {
-            try {
-                const res = await fetch(`${API_BASE_URL}/auth/register`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ username, password }),
-                    credentials: 'include', // Send cookies
-                });
-                const data = await res.json();
-                if (!res.ok) return data.message || "Registration failed.";
-
-                // The cookie is set by the server. We just need to update the client state.
-                setCurrentUser(data.user);
-                setUserData(EMPTY_USER_DATA);
-
-                onLoginSuccess?.(); 
-                return null;
-            } catch (error) {
-                return "Could not connect to the server.";
-            }
-        } else {
-            if (localUsers[username]) return "Username already exists.";
-            setLocalUsers({ ...localUsers, [username]: { password } });
-            // For frontend-only, we now automatically log the user in after registration.
-            setLocalLoggedInUser({ username });
-            onLoginSuccess?.();
-            return null;
-        }
-    }, [localUsers, setLocalUsers, onLoginSuccess, setLocalLoggedInUser]);
-
+    // Fix: The 'login' function is defined before 'register' because 'register' calls 'login',
+    // preventing a 'used before declaration' error.
     const login = useCallback(async (username: string, password: string): Promise<string | null> => {
         if (BACKEND_MODE) {
             try {
@@ -228,7 +196,7 @@ export const useAuth = (onLoginSuccess?: () => void, openConflictModal?: (data: 
                 if (!dataRes.ok) return "Login succeeded, but failed to fetch user data.";
                 const { user, data } = await dataRes.json();
                 
-                // 3. Set all state at once.
+                // 3. Set all state at once. The user object now contains isAdmin.
                 setCurrentUser(user);
                 setUserData(data);
                 
@@ -248,6 +216,34 @@ export const useAuth = (onLoginSuccess?: () => void, openConflictModal?: (data: 
             return null;
         }
     }, [onLoginSuccess, setLocalLoggedInUser]);
+
+    const register = useCallback(async (username: string, password: string): Promise<string | null> => {
+        if (!username || !password) return "Username and password cannot be empty.";
+        
+        if (BACKEND_MODE) {
+            try {
+                const res = await fetch(`${API_BASE_URL}/auth/register`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password }),
+                });
+                const data = await res.json();
+                if (!res.ok) return data.message || "Registration failed.";
+
+                // After successful registration, immediately log in to get user data and set the cookie.
+                return await login(username, password);
+            } catch (error) {
+                return "Could not connect to the server.";
+            }
+        } else {
+            if (localUsers[username]) return "Username already exists.";
+            setLocalUsers({ ...localUsers, [username]: { password } });
+            // For frontend-only, we now automatically log the user in after registration.
+            setLocalLoggedInUser({ username });
+            onLoginSuccess?.();
+            return null;
+        }
+    }, [localUsers, setLocalUsers, onLoginSuccess, setLocalLoggedInUser, login]);
 
     const logout = useCallback(async () => {
         if (BACKEND_MODE) {

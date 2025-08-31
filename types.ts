@@ -86,6 +86,17 @@ export interface Drama {
 export interface User {
   /** The unique username for the user. */
   username: string;
+  /** A flag indicating if the user has administrative privileges. */
+  isAdmin?: boolean;
+}
+
+/**
+ * Represents the view of a user from the admin's perspective.
+ */
+export interface AdminUserView {
+    id: number;
+    username: string;
+    is_banned: boolean;
 }
 
 /**

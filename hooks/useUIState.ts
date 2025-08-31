@@ -8,13 +8,15 @@ import { useState, useCallback, useEffect } from 'react';
 import { Drama, ModalStackItem, ConflictData } from '../types';
 import { useLocalStorage } from './useLocalStorage';
 
+export type ActiveView = 'home' | 'my-list' | 'all-reviews' | 'admin';
+
 /**
  * A hook to manage the state of the application's user interface.
  * @returns An object containing UI state variables and functions to manipulate them.
  */
 export const useUIState = () => {
     /** The active main view, either 'home' for discovery or 'my-list' for user collections. */
-    const [activeView, setActiveView] = useState<'home' | 'my-list' | 'all-reviews'>('home');
+    const [activeView, setActiveView] = useState<ActiveView>('home');
     /** A stack to manage the history of opened modals for navigation. */
     const [modalStack, setModalStack] = useState<ModalStackItem[]>([]);
     /** Boolean flag for the visibility of the authentication (login/register) modal. */
@@ -82,7 +84,7 @@ export const useUIState = () => {
     // in child components that receive these functions as props.
 
     /** Navigates to a different main view and resets pagination. */
-    const navigateTo = useCallback((view: 'home' | 'my-list' | 'all-reviews') => {
+    const navigateTo = useCallback((view: ActiveView) => {
         setActiveView(view);
         setCurrentPage(1); // Always reset to page 1 when changing views.
     }, []);
