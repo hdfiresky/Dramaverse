@@ -211,7 +211,7 @@ export default function App() {
                 );
             case 'admin':
                  if (currentUser?.isAdmin) {
-                    return <AdminPanel allDramas={allDramas} />;
+                    return <AdminPanel allDramas={allDramas} currentUser={currentUser} />;
                 }
                 // Fallback for non-admins trying to access the route
                 navigateTo('home');

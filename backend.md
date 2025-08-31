@@ -169,7 +169,7 @@ const corsOptions = {
 
 // --- DATABASE MIGRATIONS ---
 const migrations = [
-    `CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE, password TEXT, is_admin BOOLEAN DEFAULT 0 NOT NULL, is_banned BOOLEAN DEFAULT 0 NOT NULL)`,
+    `CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE, password TEXT, is_admin BOOLEAN DEFAULT 0 NOT NULL, is_banned BOOLEAN DEFAULT 0 NOT NULL, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)`,
     `CREATE TABLE IF NOT EXISTS dramas (url TEXT PRIMARY KEY, title TEXT, data TEXT)`,
     `CREATE TABLE IF NOT EXISTS user_favorites (user_id INTEGER, drama_url TEXT, PRIMARY KEY (user_id, drama_url), FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE, FOREIGN KEY (drama_url) REFERENCES dramas(url) ON DELETE CASCADE)`,
     `CREATE TABLE IF NOT EXISTS user_statuses (user_id INTEGER, drama_url TEXT, status TEXT, currentEpisode INTEGER, PRIMARY KEY (user_id, drama_url), FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE, FOREIGN KEY (drama_url) REFERENCES dramas(url) ON DELETE CASCADE)`,
@@ -593,9 +593,45 @@ app.post('/api/user/reviews/episodes', (req, res) => {
 app.use('/api/admin', authMiddleware, adminAuthMiddleware, apiLimiter);
 
 app.get('/api/admin/users', (req, res) => {
-    db.all('SELECT id, username, is_banned FROM users', (err, rows) => {
+    db.all('SELECT id, username, is_banned, is_admin FROM users', (err, rows) => {
         if (err) return res.status(500).json({ message: 'Database error.' });
-        res.json(rows);
+        // Map is_admin (0/1) to a boolean for the frontend
+        const users = rows.map(user => ({ ...user, isAdmin: !!user.is_admin }));
+        res.json(users);
+    });
+});
+
+app.get('/api/admin/stats/registrations', (req, res) => {
+    const fourteenDaysAgo = new Date();
+    fourteenDaysAgo.setDate(fourteenDaysAgo.getDate() - 14);
+    
+    const sql = `
+        SELECT date(created_at) as registration_date, COUNT(id) as count
+        FROM users
+        WHERE created_at >= ?
+        GROUP BY registration_date
+        ORDER BY registration_date ASC
+    `;
+
+    db.all(sql, [fourteenDaysAgo.toISOString().split('T')[0]], (err, rows) => {
+        if (err) {
+            console.error("Failed to get registration stats:", err);
+            return res.status(500).json({ message: 'Database error.' });
+        }
+        
+        const statsMap = new Map(rows.map(row => [row.registration_date, row.count]));
+        const result = [];
+        for (let i = 13; i >= 0; i--) {
+            const date = new Date();
+            date.setDate(date.getDate() - i);
+            const dateString = date.toISOString().split('T')[0];
+            result.push({
+                date: dateString,
+                count: statsMap.get(dateString) || 0,
+            });
+        }
+        
+        res.json(result);
     });
 });
 
@@ -608,6 +644,22 @@ app.get('/api/admin/users/:id/data', async (req, res) => {
     } catch (error) {
         res.status(500).json({ message: 'Failed to fetch user data.' });
     }
+});
+
+app.post('/api/admin/users/:id/admin', (req, res) => {
+    const userId = parseInt(req.params.id, 10);
+    const { isAdmin } = req.body;
+    if (isNaN(userId) || typeof isAdmin !== 'boolean') return res.status(400).json({ message: 'Invalid payload.' });
+    
+    if (req.user.id === userId && !isAdmin) {
+        return res.status(403).json({ message: 'Cannot demote your own account.' });
+    }
+
+    db.run('UPDATE users SET is_admin = ? WHERE id = ?', [isAdmin ? 1 : 0, userId], function(err) {
+        if (err) return res.status(500).json({ message: 'Database error.' });
+        if (this.changes === 0) return res.status(404).json({ message: 'User not found.' });
+        res.status(200).json({ success: true });
+    });
 });
 
 app.post('/api/admin/users/:id/ban', (req, res) => {

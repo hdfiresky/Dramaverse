@@ -67,7 +67,70 @@ export const fetchAllUsers = async (): Promise<AdminUserView[]> => {
             id: data.id,
             username,
             is_banned: data.is_banned || false,
+            isAdmin: data.isAdmin || false,
         }));
+    }
+};
+
+export const fetchAllUserDataForAdmin = async (): Promise<Record<string, UserData>> => {
+    if (BACKEND_MODE) {
+        // This would require a new, potentially heavy, backend endpoint.
+        // In a real scenario, the backend would have a dedicated aggregate endpoint.
+        console.warn("fetchAllUserDataForAdmin is not optimized for backend mode and fetches user data individually.");
+        const users = await fetchAllUsers();
+        const allData: Record<string, UserData> = {};
+        for (const user of users) {
+            try {
+                allData[user.username] = await fetchUserDataForAdmin(user.id);
+            } catch (e) {
+                console.error(`Could not fetch data for user ${user.username}`, e);
+            }
+        }
+        return allData;
+    } else {
+        // Frontend-only: Read all user data from localStorage.
+        const users = getLocalUsers();
+        const allUserData: Record<string, UserData> = {};
+        for (const username in users) {
+            const userDataString = localStorage.getItem(`${LOCAL_STORAGE_KEYS.USER_DATA_PREFIX}${username}`);
+            if (userDataString) {
+                try {
+                    allUserData[username] = JSON.parse(userDataString);
+                } catch (e) {
+                    console.error(`Could not parse user data for ${username}`, e);
+                }
+            }
+        }
+        return allUserData;
+    }
+};
+
+export const fetchRegistrationStats = async (): Promise<{ date: string; count: number }[]> => {
+    if (BACKEND_MODE) {
+        const res = await fetch(`${API_BASE_URL}/admin/stats/registrations`, { credentials: 'include' });
+        await handleApiError(res, 'Failed to fetch registration stats from server.');
+        return res.json();
+    } else {
+        const users = getLocalUsers();
+        const dailyCounts: Record<string, number> = {};
+
+        Object.values(users).forEach(user => {
+            const date = new Date(user.id); // user.id is a timestamp
+            const dateString = date.toISOString().split('T')[0]; // 'YYYY-MM-DD'
+            dailyCounts[dateString] = (dailyCounts[dateString] || 0) + 1;
+        });
+
+        const stats = [];
+        for (let i = 13; i >= 0; i--) {
+            const date = new Date();
+            date.setDate(date.getDate() - i);
+            const dateString = date.toISOString().split('T')[0];
+            stats.push({
+                date: dateString,
+                count: dailyCounts[dateString] || 0,
+            });
+        }
+        return stats;
     }
 };
 
@@ -85,6 +148,25 @@ export const fetchUserDataForAdmin = async (userId: number): Promise<UserData> =
         const [username] = userEntry;
         const userDataString = localStorage.getItem(`${LOCAL_STORAGE_KEYS.USER_DATA_PREFIX}${username}`);
         return userDataString ? JSON.parse(userDataString) : { favorites: [], statuses: {}, reviews: {}, episodeReviews: {} };
+    }
+};
+
+export const toggleUserAdminStatus = async (userId: number, makeAdmin: boolean): Promise<void> => {
+    if (BACKEND_MODE) {
+        const res = await fetch(`${API_BASE_URL}/admin/users/${userId}/admin`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ isAdmin: makeAdmin }),
+            credentials: 'include',
+        });
+        await handleApiError(res, 'Failed to update admin status on server.');
+    } else {
+        const users = getLocalUsers();
+        const userEntry = Object.entries(users).find(([, data]) => data.id === userId);
+        if (!userEntry) throw new Error('User not found in localStorage.');
+        const [username] = userEntry;
+        users[username].isAdmin = makeAdmin;
+        setLocalUsers(users);
     }
 };
 

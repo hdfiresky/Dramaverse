@@ -97,6 +97,7 @@ export interface AdminUserView {
     id: number;
     username: string;
     is_banned: boolean;
+    isAdmin: boolean;
 }
 
 /**

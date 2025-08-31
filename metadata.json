@@ -2,5 +2,5 @@
   "name": "Dramaverse",
   "description": "An advanced drama finder application that allows users to explore, filter, sort, and manage a vast library of dramas. Features include local user accounts, personalized watchlists, ratings, and an intelligent similarity-based recommendation system.",
   "requestFramePermissions": [],
-  "prompt": "is socket safe in backend find and fix any or all loopholes "
+  "prompt": "An advanced drama discovery and tracking application called Dramaverse. Users can browse a large library of dramas, apply complex filters (include/exclude genres/tags, rating, country, cast), and use a unique weighted sorting system. Logged-in users can maintain personal watchlists with statuses (Watching, Completed, etc.), favorite dramas, and write detailed episode-by-episode reviews. The app features a powerful client-side similarity engine for recommendations and a comprehensive admin panel for user management. It supports both a frontend-only mode using localStorage and an optional backend with a database and real-time synchronization via WebSockets."
 }
