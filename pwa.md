@@ -27,11 +27,11 @@ This guide assumes you are using Vite as your build tool.
 
 ## 3. Configuration
 
-### 3.1 Deploying to a Sub-path (e.g., `/dramaveerse/`)
+### 3.1 Deploying to a Sub-path (e.g., `/dramaverse/`)
 
-If your application will not be deployed at the root of your domain (e.g., `https://example.com/dramaveerse/` instead of `https://example.com/`), you must configure the `base` path in your Vite config. This ensures that all asset paths and service worker scopes are generated correctly.
+If your application will not be deployed at the root of your domain (e.g., `https://example.com/dramaverse/` instead of `https://example.com/`), you must configure the `base` path in your Vite config. This ensures that all asset paths and service worker scopes are generated correctly.
 
-We will set `base: '/dramaveerse/'` in our configuration. This will also be reflected in the `scope` and `start_url` of the PWA manifest.
+We will set `base: '/dramaverse/'` in our configuration. This will also be reflected in the `scope` and `start_url` of the PWA manifest.
 
 ### 3.2 Main Configuration
 
@@ -44,7 +44,7 @@ import { VitePWA } from 'vite-plugin-pwa';
 
 export default defineConfig({
   // Set the base path if deploying to a subdirectory.
-  base: '/dramaveerse/', 
+  base: '/dramaverse/', 
 
   plugins: [
     // react(), // Assuming you are using the official Vite React plugin.
@@ -63,8 +63,8 @@ export default defineConfig({
         theme_color: '#111827', // dark-slate-900
         background_color: '#111827',
         display: 'standalone',
-        scope: '/dramaveerse/', // Match the base path
-        start_url: '/dramaveerse/', // Match the base path
+        scope: '/dramaverse/', // Match the base path
+        start_url: '/dramaverse/', // Match the base path
         icons: [
           {
             src: 'pwa-192x192.png',
@@ -246,7 +246,7 @@ const authenticatedUpdate = useCallback(async (endpoint, body, updateFn) => {
     ```
 
 3.  **Test in Browser**:
-    -   Open your app (e.g., `http://localhost:3000/dramaveerse/`).
+    -   Open your app (e.g., `http://localhost:3000/dramaverse/`).
     -   Open Chrome DevTools -> **Application** tab.
     -   Under **Service Workers**, verify your worker is running.
     -   Go to **Backend Mode**, log in, and then check the **"Offline"** box.

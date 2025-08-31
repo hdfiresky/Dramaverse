@@ -9,7 +9,7 @@ import { io, Socket } from 'socket.io-client';
 import { useLocalStorage } from './useLocalStorage';
 import { User, UserData, UserDramaStatus, DramaStatus, ConflictData, EpisodeReview } from '../types';
 import { LOCAL_STORAGE_KEYS } from './lib/constants';
-import { BACKEND_MODE, API_BASE_URL, WEBSOCKET_URL } from '../config';
+import { BASE_PATH, BACKEND_MODE, API_BASE_URL, WEBSOCKET_URL } from '../config';
 
 const EMPTY_USER_DATA: UserData = { favorites: [], statuses: {}, reviews: {}, episodeReviews: {} };
 
@@ -75,8 +75,13 @@ export const useAuth = (onLoginSuccess?: () => void, openConflictModal?: (data: 
     // Effect to create and destroy the socket connection.
     useEffect(() => {
         if (BACKEND_MODE && authToken) {
+            // Construct the WebSocket path from the BASE_PATH config to support subdirectories.
+            // The server must be configured to listen on this same path.
+            const socketPath = `${BASE_PATH}socket.io/`.replace('//', '/');
+
             const newSocket: Socket = io(WEBSOCKET_URL, {
                 auth: { token: authToken },
+                path: socketPath,
                 reconnection: true,
                 reconnectionAttempts: 5,
                 reconnectionDelay: 1000,

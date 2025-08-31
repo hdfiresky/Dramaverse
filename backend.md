@@ -60,6 +60,10 @@ This document provides a comprehensive guide to setting up and running the optio
     # A long, random, and secret string for signing JWTs
     # IMPORTANT: Change this to your own unique secret!
     JWT_SECRET="replace-this-with-a-very-long-and-random-string"
+
+    # (Optional) The subpath for the Socket.IO server if running behind a reverse proxy sub-directory.
+    # Must start and end with a slash. e.g. /dramaveerse/socket.io/
+    SOCKET_IO_PATH="/dramaveerse/socket.io/"
     ```
 
 6.  **Configure `.gitignore`**: Create a `.gitignore` file in the `backend` directory to prevent sensitive files from being committed.
@@ -129,6 +133,7 @@ dotenv.config(); // Load environment variables from .env file
 const PORT = process.env.PORT || 3001;
 const JWT_SECRET = process.env.JWT_SECRET;
 const DB_SOURCE = "dramas.db";
+const SOCKET_IO_PATH = process.env.SOCKET_IO_PATH || '/socket.io/'; // Read subpath from .env
 
 if (!JWT_SECRET || JWT_SECRET === "replace-this-with-a-very-long-and-random-string") {
     console.error("FATAL ERROR: JWT_SECRET is not set or is set to the default value in the .env file.");
@@ -312,7 +317,11 @@ const apiLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 200, standardHeade
 const authLimiter = rateLimit({ windowMs: 30 * 60 * 1000, max: 10, message: 'Too many authentication attempts, please try again after 30 minutes.' });
 app.use(express.json());
 app.use(cors(corsOptions));
-const io = new Server(server, { cors: corsOptions });
+const io = new Server(server, { 
+    cors: corsOptions,
+    path: SOCKET_IO_PATH,
+});
+console.log(`Socket.IO server listening on path: ${SOCKET_IO_PATH}`);
 
 // --- SOCKET.IO MIDDLEWARE & LISTENERS ---
 io.use((socket, next) => {

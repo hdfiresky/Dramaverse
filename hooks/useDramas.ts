@@ -48,12 +48,13 @@ export const useDramas = (filters: Filters, searchTerm: string, sortPriorities: 
                     setMetadata(await metaRes.json());
                 }
 
-                // In BOTH modes, we fetch the static JSON once.
+                // In BOTH modes, we fetch the static JSON.
                 // - In frontend mode, it's the primary data source.
-                // - In backend mode, it's a fallback and provides the necessary data for
-                //   client-side modal logic (like recommendations) without needing extra API calls.
-                const dramaRes = await fetch('/data/dramas.json');
-                if (!dramaRes.ok) throw new Error('Failed to fetch drama data file.');
+                // - In backend mode, it's a fallback and provides data for client-side modal
+                //   logic. Using a simple relative path is the most robust way to ensure the file
+                //   is found regardless of whether the app is at the root or in a sub-directory.
+                const dramaRes = await fetch('data/dramas.json');
+                if (!dramaRes.ok) throw new Error(`Failed to fetch drama data file from 'data/dramas.json'.`);
                 const dramaData: Drama[] = await dramaRes.json();
                 setRawDramas(dramaData);
 
