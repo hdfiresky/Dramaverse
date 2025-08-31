@@ -36,9 +36,4 @@ export const LOCAL_STORAGE_KEYS = {
      * This is ONLY used in frontend-only mode.
      */
     LOGGED_IN_USER: 'dramaverse_loggedin_user',
-    /**
-     * Key for storing the JWT authentication token.
-     * This is ONLY used in backend mode.
-     */
-    AUTH_TOKEN: 'dramaverse_auth_token',
 };

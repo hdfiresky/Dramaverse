@@ -26,7 +26,6 @@ export const useAuth = (onLoginSuccess?: () => void, openConflictModal?: (data: 
     const [isAuthLoading, setIsAuthLoading] = useState(BACKEND_MODE); // Only true on init in backend mode
 
     // --- Backend Mode State ---
-    const [authToken, setAuthToken] = useLocalStorage<string | null>(LOCAL_STORAGE_KEYS.AUTH_TOKEN, null);
     const [socket, setSocket] = useState<Socket | null>(null);
 
     // --- Frontend-Only Mode State ---
@@ -38,27 +37,30 @@ export const useAuth = (onLoginSuccess?: () => void, openConflictModal?: (data: 
         const initialize = async () => {
             if (BACKEND_MODE) {
                 setIsAuthLoading(true);
-                if (authToken) {
-                    try {
-                        const res = await fetch(`${API_BASE_URL}/user/data`, {
-                            headers: { 'Authorization': `Bearer ${authToken}` }
-                        });
-                        if (!res.ok) throw new Error('Invalid session');
-                        // The backend now returns a comprehensive payload.
-                        const { user, data } = await res.json();
-                        setCurrentUser(user);
-                        setUserData(data);
-                    } catch (error) {
-                        console.error("Session validation failed:", error);
-                        setAuthToken(null); // Clear invalid token
-                    } finally {
-                        setIsAuthLoading(false);
+                try {
+                    // In backend mode with cookies, we can't check for a token.
+                    // Instead, we directly ask the server for the current user's data.
+                    // The browser will automatically send the auth cookie if it exists.
+                    const res = await fetch(`${API_BASE_URL}/user/data`, {
+                        // This option is crucial for sending cookies with cross-origin requests.
+                        credentials: 'include', 
+                    });
+                    if (!res.ok) {
+                        // A 401 or other error means no valid session exists.
+                        throw new Error('No active session');
                     }
-                } else {
-                     setIsAuthLoading(false);
+                    const { user, data } = await res.json();
+                    setCurrentUser(user);
+                    setUserData(data);
+                } catch (error) {
+                    console.log("No active session found.");
+                    setCurrentUser(null);
+                    setUserData(EMPTY_USER_DATA);
+                } finally {
+                    setIsAuthLoading(false);
                 }
             } else {
-                // Frontend-only mode logic is synchronous
+                // Frontend-only mode logic is synchronous and unchanged.
                 setIsAuthLoading(false);
                 setCurrentUser(localLoggedInUser);
                 if (localLoggedInUser) {
@@ -70,25 +72,25 @@ export const useAuth = (onLoginSuccess?: () => void, openConflictModal?: (data: 
             }
         };
         initialize();
-    }, [authToken, localLoggedInUser, setAuthToken]);
+    }, [localLoggedInUser]);
 
-    // Effect to create and destroy the socket connection.
+    // Effect to create and destroy the socket connection. It now depends on `currentUser`.
     useEffect(() => {
-        if (BACKEND_MODE && authToken) {
-            // Construct the WebSocket path from the BASE_PATH config to support subdirectories.
-            // The server must be configured to listen on this same path.
+        if (BACKEND_MODE && currentUser) {
             const socketPath = `${BASE_PATH}socket.io/`.replace('//', '/');
 
             if (ENABLE_DEBUG_LOGGING) {
                  console.log(`%c[Socket.IO] Initializing connection to endpoint: ${WEBSOCKET_URL || window.location.origin} with path: ${socketPath}`, 'color: #2196f3;');
             }
 
+            // The socket no longer needs to send the token in `auth`, as the initial HTTP
+            // handshake for the connection will include the auth cookie automatically.
             const newSocket: Socket = io(WEBSOCKET_URL, {
-                auth: { token: authToken },
                 path: socketPath,
                 reconnection: true,
                 reconnectionAttempts: 5,
                 reconnectionDelay: 1000,
+                withCredentials: true, // Important: ensures cookies are sent with the connection request.
             });
 
             if (ENABLE_DEBUG_LOGGING) {
@@ -102,14 +104,13 @@ export const useAuth = (onLoginSuccess?: () => void, openConflictModal?: (data: 
 
             setSocket(newSocket);
 
-            // This cleanup function runs when authToken changes or the component unmounts
             return () => {
                 if (ENABLE_DEBUG_LOGGING) console.log('%c[Socket.IO] Cleaning up and disconnecting socket.', 'color: #ff9800;');
                 newSocket.disconnect();
                 setSocket(null);
             };
         }
-    }, [authToken]);
+    }, [currentUser]);
 
     // Effect to manage socket event listeners for granular real-time updates.
     useEffect(() => {
@@ -182,17 +183,13 @@ export const useAuth = (onLoginSuccess?: () => void, openConflictModal?: (data: 
                 const res = await fetch(`${API_BASE_URL}/auth/register`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ username, password })
+                    body: JSON.stringify({ username, password }),
+                    credentials: 'include', // Send cookies
                 });
                 const data = await res.json();
                 if (!res.ok) return data.message || "Registration failed.";
 
-                const token = data.token;
-                if (!token) return "Registration failed: No token received from server.";
-                
-                // Set all state for the new user immediately.
-                // New users have empty data, so no need for an extra fetch.
-                setAuthToken(token);
+                // The cookie is set by the server. We just need to update the client state.
                 setCurrentUser(data.user);
                 setUserData(EMPTY_USER_DATA);
 
@@ -204,38 +201,37 @@ export const useAuth = (onLoginSuccess?: () => void, openConflictModal?: (data: 
         } else {
             if (localUsers[username]) return "Username already exists.";
             setLocalUsers({ ...localUsers, [username]: { password } });
+            // For frontend-only, we now automatically log the user in after registration.
+            setLocalLoggedInUser({ username });
+            onLoginSuccess?.();
             return null;
         }
-    }, [localUsers, setLocalUsers, onLoginSuccess, setAuthToken]);
+    }, [localUsers, setLocalUsers, onLoginSuccess, setLocalLoggedInUser]);
 
     const login = useCallback(async (username: string, password: string): Promise<string | null> => {
         if (BACKEND_MODE) {
             try {
-                // 1. Authenticate and get token
+                // 1. Authenticate. The server will set the cookie.
                 const loginRes = await fetch(`${API_BASE_URL}/auth/login`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ username, password })
+                    body: JSON.stringify({ username, password }),
+                    credentials: 'include',
                 });
                 const loginData = await loginRes.json();
                 if (!loginRes.ok) return loginData.message || "Login failed.";
                 
-                const token = loginData.token;
-                if (!token) return "Login failed: No token received from server.";
-
-                // 2. Immediately fetch user data with the new token
+                // 2. Fetch user data to populate the app state. The browser sends the new cookie.
                 const dataRes = await fetch(`${API_BASE_URL}/user/data`, {
-                    headers: { 'Authorization': `Bearer ${token}` }
+                    credentials: 'include',
                 });
                 if (!dataRes.ok) return "Login succeeded, but failed to fetch user data.";
                 const { user, data } = await dataRes.json();
                 
-                // 3. Set all state at once to ensure UI updates correctly
-                setAuthToken(token);
+                // 3. Set all state at once.
                 setCurrentUser(user);
                 setUserData(data);
                 
-                // 4. Call success callback to close modal
                 onLoginSuccess?.();
                 return null;
 
@@ -251,17 +247,27 @@ export const useAuth = (onLoginSuccess?: () => void, openConflictModal?: (data: 
             onLoginSuccess?.();
             return null;
         }
-    }, [setAuthToken, onLoginSuccess, setLocalLoggedInUser]);
+    }, [onLoginSuccess, setLocalLoggedInUser]);
 
-    const logout = useCallback(() => {
+    const logout = useCallback(async () => {
         if (BACKEND_MODE) {
-            setAuthToken(null);
-            setCurrentUser(null);
-            setUserData(EMPTY_USER_DATA);
+            try {
+                // Ask the server to clear the HttpOnly cookie
+                await fetch(`${API_BASE_URL}/auth/logout`, {
+                    method: 'POST',
+                    credentials: 'include',
+                });
+            } catch (error) {
+                console.error("Logout request failed, but clearing client state anyway.", error);
+            } finally {
+                // Always clear client-side state regardless of API call success
+                setCurrentUser(null);
+                setUserData(EMPTY_USER_DATA);
+            }
         } else {
             setLocalLoggedInUser(null);
         }
-    }, [setAuthToken, setLocalLoggedInUser]);
+    }, [setLocalLoggedInUser]);
 
     const authenticatedUpdate = useCallback(async (endpoint: string, body: object, updateFn: (data: UserData) => UserData) => {
         if (!currentUser) return false;
@@ -276,8 +282,8 @@ export const useAuth = (onLoginSuccess?: () => void, openConflictModal?: (data: 
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${authToken}`
                     },
+                    credentials: 'include', // This sends the cookie.
                     body: JSON.stringify(body)
                 });
                  if (res.status === 409) {
@@ -298,7 +304,7 @@ export const useAuth = (onLoginSuccess?: () => void, openConflictModal?: (data: 
             localStorage.setItem(`${LOCAL_STORAGE_KEYS.USER_DATA_PREFIX}${currentUser.username}`, JSON.stringify(newUserData));
         }
         return true;
-    }, [currentUser, authToken, userData, openConflictModal]);
+    }, [currentUser, userData, openConflictModal]);
     
     const toggleFavorite = useCallback((dramaUrl: string) => {
         const isFavorite = userData.favorites.includes(dramaUrl);
@@ -383,8 +389,8 @@ export const useAuth = (onLoginSuccess?: () => void, openConflictModal?: (data: 
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
-                            'Authorization': `Bearer ${authToken}`
                         },
+                        credentials: 'include',
                         body: JSON.stringify({ ...clientPayload, force: true })
                     });
                 } catch (error) {
@@ -392,7 +398,7 @@ export const useAuth = (onLoginSuccess?: () => void, openConflictModal?: (data: 
                 }
             }
         }
-    }, [currentUser, authToken]);
+    }, [currentUser]);
     
 
     return {
