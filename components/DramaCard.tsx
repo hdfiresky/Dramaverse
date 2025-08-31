@@ -2,9 +2,9 @@
  * @fileoverview Defines the DramaCard component, a key visual element for displaying
  * a summary of a drama in the main grid view.
  */
-import React from 'react';
-import { Drama, UserData, DramaStatus } from '../types';
-import { StarIcon, HeartIcon, BookmarkIcon } from './Icons';
+import React, { useState, useRef, useEffect } from 'react';
+import { Drama, UserData, DramaStatus, UserDramaStatus } from '../types';
+import { StarIcon, HeartIcon, BookmarkIcon, EyeIcon, CheckCircleIcon, PauseIcon, XCircleIcon } from './Icons';
 
 interface DramaCardProps {
     /** The drama object containing all data to display. */
@@ -15,9 +15,19 @@ interface DramaCardProps {
     userData?: UserData;
     /** Callback to toggle the drama's favorite status. */
     onToggleFavorite: (dramaUrl: string) => void;
-    /** Callback to toggle the drama's 'Plan to Watch' status. */
-    onTogglePlanToWatch: (dramaUrl: string) => void;
+    /** Callback to set the user's status for a drama. */
+    onSetStatus: (url: string, statusInfo: Omit<UserDramaStatus, 'updatedAt'>) => void;
 }
+
+const statusConfig: Record<DramaStatus, { icon: React.FC<any>; label: string }> = {
+    [DramaStatus.Watching]: { icon: EyeIcon, label: 'Watching' },
+    [DramaStatus.Completed]: { icon: CheckCircleIcon, label: 'Completed' },
+    [DramaStatus.OnHold]: { icon: PauseIcon, label: 'On-Hold' },
+    [DramaStatus.Dropped]: { icon: XCircleIcon, label: 'Dropped' },
+    [DramaStatus.PlanToWatch]: { icon: BookmarkIcon, label: 'Plan to Watch' },
+};
+const statusOrder = [DramaStatus.Watching, DramaStatus.Completed, DramaStatus.OnHold, DramaStatus.Dropped, DramaStatus.PlanToWatch];
+
 
 /**
  * A component that renders a visual card for a single drama.
@@ -27,18 +37,39 @@ interface DramaCardProps {
  * @param {DramaCardProps} props - The props for the DramaCard component.
  * @returns {React.ReactElement} The rendered drama card.
  */
-export const DramaCard: React.FC<DramaCardProps> = ({ drama, onSelect, userData, onToggleFavorite, onTogglePlanToWatch }) => {
+export const DramaCard: React.FC<DramaCardProps> = ({ drama, onSelect, userData, onToggleFavorite, onSetStatus }) => {
+    const [popoverOpen, setPopoverOpen] = useState(false);
+    const wrapperRef = useRef<HTMLDivElement>(null);
+
     // Determine the current status of the drama for the logged-in user to apply correct styling.
     const isFavorite = userData?.favorites.includes(drama.url) ?? false;
-    const isPlanToWatch = userData?.statuses[drama.url]?.status === DramaStatus.PlanToWatch;
+    const currentStatus = userData?.statuses[drama.url]?.status;
 
     // A helper to safely extract the year from the aired_date string.
     const getYear = (dateStr: string) => {
-        // Attempt to parse the start date of the range.
         const year = new Date(dateStr.split(' - ')[0]).getFullYear();
-        // Return the year if it's a valid number, otherwise return 'TBA' (To Be Announced).
         return isNaN(year) ? 'TBA' : year;
     }
+
+    const handleStatusUpdate = (e: React.MouseEvent, newStatus: DramaStatus | null) => {
+        e.stopPropagation();
+        const currentEpisode = userData?.statuses[drama.url]?.currentEpisode || 0;
+        onSetStatus(drama.url, { status: newStatus as any, currentEpisode });
+        setPopoverOpen(false);
+    };
+
+    // Close popover on click outside
+    useEffect(() => {
+        function handleClickOutside(event: MouseEvent) {
+            if (wrapperRef.current && !wrapperRef.current.contains(event.target as Node)) {
+                setPopoverOpen(false);
+            }
+        }
+        document.addEventListener("mousedown", handleClickOutside);
+        return () => document.removeEventListener("mousedown", handleClickOutside);
+    }, [wrapperRef]);
+    
+    const StatusIcon = currentStatus ? statusConfig[currentStatus].icon : BookmarkIcon;
 
     return (
         <div 
@@ -67,17 +98,53 @@ export const DramaCard: React.FC<DramaCardProps> = ({ drama, onSelect, userData,
                         >
                             <HeartIcon className="w-5 h-5" />
                         </button>
-                        <button 
-                            onClick={(e) => { 
-                                e.stopPropagation(); // Prevent modal from opening when this button is clicked.
-                                onTogglePlanToWatch(drama.url); 
-                            }} 
-                            className={`p-2 rounded-full transition-colors ${isPlanToWatch ? 'bg-brand-accent text-white hover:bg-brand-accent-hover' : 'bg-black/50 text-white hover:bg-sky-300'}`} 
-                            title={isPlanToWatch ? 'Remove from Plan to Watch' : 'Add to Plan to Watch'}
-                            aria-label={isPlanToWatch ? 'Remove from Plan to Watch' : 'Add to Plan to Watch'}
-                        >
-                            <BookmarkIcon className="w-5 h-5" />
-                        </button>
+                        
+                        <div className="relative" ref={wrapperRef}>
+                            <button
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    setPopoverOpen(prev => !prev);
+                                }}
+                                className={`p-2 rounded-full transition-colors ${currentStatus ? 'bg-brand-accent text-white hover:bg-brand-accent-hover' : 'bg-black/50 text-white hover:bg-sky-300'}`}
+                                title="Set Status"
+                                aria-label="Set drama status"
+                                aria-haspopup="true"
+                                aria-expanded={popoverOpen}
+                            >
+                                <StatusIcon className="w-5 h-5" />
+                            </button>
+
+                            {popoverOpen && (
+                                <div
+                                    onClick={e => e.stopPropagation()}
+                                    className="absolute right-0 top-full mt-2 w-48 bg-brand-secondary rounded-md shadow-lg z-20 py-1 ring-1 ring-black/5 animate-fade-in"
+                                    style={{ animationDuration: '150ms' }}
+                                >
+                                    {statusOrder.map(status => {
+                                        const { icon: Icon, label } = statusConfig[status];
+                                        const isActive = currentStatus === status;
+                                        return (
+                                            <button
+                                                key={status}
+                                                onClick={(e) => handleStatusUpdate(e, status)}
+                                                className={`w-full text-left px-3 py-2 text-sm flex items-center gap-3 transition-colors ${isActive ? 'bg-brand-accent text-white' : 'hover:bg-brand-primary'}`}
+                                            >
+                                                <Icon className="w-4 h-4" />
+                                                <span>{label}</span>
+                                            </button>
+                                        );
+                                    })}
+                                    <div className="my-1 h-px bg-slate-200 dark:bg-slate-700"></div>
+                                    <button
+                                        onClick={(e) => handleStatusUpdate(e, null)}
+                                        className="w-full text-left px-3 py-2 text-sm flex items-center gap-3 hover:bg-brand-primary text-red-500"
+                                    >
+                                        <XCircleIcon className="w-4 h-4" />
+                                        <span>Remove from list</span>
+                                    </button>
+                                </div>
+                            )}
+                        </div>
                         </>
                     )}
                 </div>

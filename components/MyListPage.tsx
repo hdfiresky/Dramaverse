@@ -4,7 +4,7 @@
  * accessible to logged-in users.
  */
 import React, { useState, useMemo, useEffect } from 'react';
-import { Drama, UserData, DramaStatus } from '../types';
+import { Drama, UserData, DramaStatus, UserDramaStatus } from '../types';
 import { DramaCard } from './DramaCard';
 import { EyeIcon, BookmarkIcon, CheckCircleIcon, HeartIcon, PauseIcon, XCircleIcon } from './Icons';
 
@@ -17,8 +17,8 @@ interface MyListPageProps {
     onSelectDrama: (drama: Drama) => void;
     /** Callback to toggle a drama's favorite status. */
     onToggleFavorite: (url: string) => void;
-    /** Callback to toggle a drama's 'Plan to Watch' status. */
-    onTogglePlanToWatch: (url: string) => void;
+    /** Callback to set the user's status for a drama. */
+    onSetStatus: (url: string, statusInfo: Omit<UserDramaStatus, 'updatedAt'>) => void;
 }
 
 // Configuration object to map each status to its corresponding icon and label.
@@ -67,7 +67,7 @@ const getInitialFilter = (userData: UserData): DramaStatus | 'Favorites' => {
  * @param {MyListPageProps} props - The props for the MyListPage component.
  * @returns {React.ReactElement} The rendered My List page.
  */
-export const MyListPage: React.FC<MyListPageProps> = ({ allDramas, userData, onSelectDrama, onToggleFavorite, onTogglePlanToWatch }) => {
+export const MyListPage: React.FC<MyListPageProps> = ({ allDramas, userData, onSelectDrama, onToggleFavorite, onSetStatus }) => {
     // State to keep track of the currently active filter, initialized with the most recently updated list.
     const [activeFilter, setActiveFilter] = useState<DramaStatus | 'Favorites'>(() => getInitialFilter(userData));
     
@@ -189,7 +189,7 @@ export const MyListPage: React.FC<MyListPageProps> = ({ allDramas, userData, onS
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-6">
                 {activeList.length > 0 ? (
                     activeList.map(drama => (
-                         <DramaCard key={drama.url} drama={drama} onSelect={onSelectDrama} userData={userData} onToggleFavorite={onToggleFavorite} onTogglePlanToWatch={onTogglePlanToWatch}/>
+                         <DramaCard key={drama.url} drama={drama} onSelect={onSelectDrama} userData={userData} onToggleFavorite={onToggleFavorite} onSetStatus={onSetStatus}/>
                     ))
                 ) : (
                     // Display a message if the current list is empty.

@@ -4,7 +4,7 @@
  */
 import React, { useMemo } from 'react';
 import ReactDOM from 'react-dom';
-import { Drama, UserData } from '../types';
+import { Drama, UserData, UserDramaStatus } from '../types';
 import { DramaCard } from './DramaCard';
 import { CloseIcon, ChevronLeftIcon } from './Icons';
 
@@ -23,8 +23,8 @@ interface CastDetailModalProps {
     userData: UserData;
     /** Callback to toggle a drama's favorite status. */
     onToggleFavorite: (url: string) => void;
-    /** Callback to toggle a drama's 'Plan to Watch' status. */
-    onTogglePlanToWatch: (url: string) => void;
+    /** Callback to set the user's status for a drama. */
+    onSetStatus: (url: string, statusInfo: Omit<UserDramaStatus, 'updatedAt'>) => void;
     /** If true, shows a "Back" button instead of a "Close" icon. */
     showBackButton: boolean;
 }
@@ -44,7 +44,7 @@ export const CastDetailModal: React.FC<CastDetailModalProps> = ({
     onSelectDrama,
     userData,
     onToggleFavorite,
-    onTogglePlanToWatch,
+    onSetStatus,
     showBackButton = false
 }) => {
     // Memoize the list of dramas for the selected actor to avoid re-filtering on every render.
@@ -101,7 +101,7 @@ export const CastDetailModal: React.FC<CastDetailModalProps> = ({
                                     onSelect={onSelectDrama}
                                     userData={userData}
                                     onToggleFavorite={onToggleFavorite}
-                                    onTogglePlanToWatch={onTogglePlanToWatch}
+                                    onSetStatus={onSetStatus}
                                 />
                             ))}
                         </div>

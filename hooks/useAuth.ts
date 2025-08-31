@@ -399,12 +399,6 @@ export const useAuth = (onLoginSuccess?: () => void, openConflictModal?: (data: 
         );
     }, [authenticatedUpdate, userData.statuses]);
 
-    const togglePlanToWatch = useCallback((dramaUrl: string) => {
-        const isCurrentlyPlanToWatch = userData.statuses[dramaUrl]?.status === DramaStatus.PlanToWatch;
-        const newStatusInfo = isCurrentlyPlanToWatch ? { status: '' as DramaStatus } : { status: DramaStatus.PlanToWatch };
-        return setDramaStatus(dramaUrl, newStatusInfo as any);
-    }, [userData, setDramaStatus]);
-
     const setEpisodeReview = useCallback((dramaUrl: string, episodeNumber: number, text: string) => {
         const clientUpdatedAt = userData.episodeReviews?.[dramaUrl]?.[episodeNumber]?.updatedAt || 0;
         
@@ -473,7 +467,6 @@ export const useAuth = (onLoginSuccess?: () => void, openConflictModal?: (data: 
         logout,
         toggleFavorite,
         setDramaStatus,
-        togglePlanToWatch,
         setEpisodeReview,
         resolveReviewConflict,
     };

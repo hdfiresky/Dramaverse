@@ -4,7 +4,7 @@
  * drama cards, and pagination. It acts as a container for the core discovery experience.
  */
 import React from 'react';
-import { Drama, UserData, Filters } from '../types';
+import { Drama, UserData, Filters, UserDramaStatus } from '../types';
 import { DramaCard } from './DramaCard';
 import { Pagination } from './Pagination';
 import { FilterIcon } from './Icons';
@@ -33,8 +33,8 @@ interface HomePageProps {
     onSelectDrama: (drama: Drama) => void;
     /** Callback to toggle a drama's favorite status. */
     onToggleFavorite: (dramaUrl: string) => void;
-    /** Callback to toggle a drama's 'Plan to Watch' status. */
-    onTogglePlanToWatch: (dramaUrl: string) => void;
+    /** Callback to set the user's status for a drama. */
+    onSetStatus: (url: string, statusInfo: Omit<UserDramaStatus, 'updatedAt'>) => void;
     /** Callback to handle changes in the search input. */
     onSearchChange: (term: string) => void;
     /** Callback to handle page changes from the Pagination component. */
@@ -64,7 +64,7 @@ export const HomePage: React.FC<HomePageProps> = ({
     itemsPerPage,
     onSelectDrama,
     onToggleFavorite,
-    onTogglePlanToWatch,
+    onSetStatus,
     onSearchChange,
     onPageChange,
     onOpenFilters,
@@ -135,7 +135,7 @@ export const HomePage: React.FC<HomePageProps> = ({
                             onSelect={onSelectDrama} 
                             userData={userData} 
                             onToggleFavorite={onToggleFavorite} 
-                            onTogglePlanToWatch={onTogglePlanToWatch}
+                            onSetStatus={onSetStatus}
                         />
                     ))}
                 </div>

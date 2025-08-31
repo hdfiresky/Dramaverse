@@ -48,7 +48,7 @@ export default function App() {
     const {
         currentUser, userData, isAuthLoading,
         login, logout, register,
-        toggleFavorite, setDramaStatus, togglePlanToWatch, setEpisodeReview, resolveReviewConflict
+        toggleFavorite, setDramaStatus, setEpisodeReview, resolveReviewConflict
     } = useAuth(closeAuthModal, openConflictModal); // Pass callbacks.
 
     // `useLocalStorage`: Persists filter and sort settings across browser sessions.
@@ -147,12 +147,6 @@ export default function App() {
         }
     }, [setDramaStatus, openAuthModal]);
     
-    const handleTogglePlanToWatch = useCallback((dramaUrl: string) => {
-        if (!togglePlanToWatch(dramaUrl)) {
-            openAuthModal();
-        }
-    }, [togglePlanToWatch, openAuthModal]);
-
     const handleSetEpisodeReview = useCallback((...args: Parameters<typeof setEpisodeReview>) => {
         if (!setEpisodeReview(...args)) {
             openAuthModal();
@@ -184,7 +178,7 @@ export default function App() {
                         itemsPerPage={ITEMS_PER_PAGE}
                         onSelectDrama={handleSelectDrama}
                         onToggleFavorite={handleToggleFavorite}
-                        onTogglePlanToWatch={handleTogglePlanToWatch}
+                        onSetStatus={handleSetStatus}
                         onSearchChange={handleSearchChange}
                         onPageChange={setCurrentPage}
                         onOpenFilters={() => toggleFilterSidebar(true)}
@@ -198,7 +192,7 @@ export default function App() {
                         userData={userData} 
                         onSelectDrama={handleSelectDrama} 
                         onToggleFavorite={handleToggleFavorite}
-                        onTogglePlanToWatch={handleTogglePlanToWatch}
+                        onSetStatus={handleSetStatus}
                     />
                 );
             case 'all-reviews':
@@ -295,7 +289,7 @@ export default function App() {
                     onSelectDrama={handleSelectDrama} 
                     userData={userData} 
                     onToggleFavorite={handleToggleFavorite} 
-                    onTogglePlanToWatch={handleTogglePlanToWatch} 
+                    onSetStatus={handleSetStatus} 
                     showBackButton={modalStack.length > 1}
                 />
             )}
