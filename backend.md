@@ -153,6 +153,7 @@ const corsOptions = {
         if (!origin || allowedOrigins.includes(origin)) {
             callback(null, true);
         } else {
+            console.error(`CORS Blocked: The origin '${origin}' is not in the allowed list.`);
             callback(new Error('Not allowed by CORS'));
         }
     },
@@ -247,21 +248,21 @@ const app = express();
 const server = http.createServer(app);
 
 // --- SECURITY & CORE MIDDLEWARE (ORDER IS IMPORTANT) ---
-// 1. Set security-related HTTP headers
+// 1. Trust proxy headers (for rate limiting behind a reverse proxy like Nginx)
+app.set('trust proxy', 1);
+
+// 2. Set security-related HTTP headers
 app.use(helmet());
-// 2. Handle Cross-Origin Resource Sharing
+
+// 3. Handle Cross-Origin Resource Sharing
 app.use(cors(corsOptions));
-// 3. Parse JSON request bodies
+
+// 4. Parse JSON request bodies
 app.use(express.json());
 
-// 4. Rate Limiting
+// 5. Rate Limiting
 const apiLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 200, standardHeaders: true, legacyHeaders: false, message: 'Too many requests, please try again after 15 minutes.' });
 const authLimiter = rateLimit({ windowMs: 30 * 60 * 1000, max: 10, message: 'Too many authentication attempts, please try again after 30 minutes.' });
-
-// Apply rate limiting to specific routes
-app.use('/api/auth', authLimiter);
-app.use('/api', apiLimiter);
-
 
 const io = new Server(server, { cors: corsOptions });
 
@@ -291,6 +292,7 @@ io.use((socket, next) => {
             return next(new Error('auth_error_invalid_token'));
         }
         socket.user = decoded;
+        console.log(`Socket for user '${socket.user.username}' successfully authenticated.`);
         next();
     });
 });
@@ -344,7 +346,12 @@ async function emitUserDataUpdate(userId) {
 }
 
 // --- API ENDPOINTS ---
-app.post('/api/auth/register', (req, res) => {
+app.get('/api/health', (req, res) => {
+    res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+// Auth routes (stricter rate limit)
+app.post('/api/auth/register', authLimiter, (req, res) => {
     const { username, password } = req.body;
     if (typeof username !== 'string' || typeof password !== 'string' || username.length < 3 || password.length < 6) {
         return res.status(400).json({ message: "Invalid input: Username must be at least 3 characters and password at least 6 characters." });
@@ -358,7 +365,7 @@ app.post('/api/auth/register', (req, res) => {
     });
 });
 
-app.post('/api/auth/login', (req, res) => {
+app.post('/api/auth/login', authLimiter, (req, res) => {
     const { username, password } = req.body;
     if (typeof username !== 'string' || typeof password !== 'string' || !username || !password) {
         return res.status(400).json({ message: "Username and password are required." });
@@ -372,11 +379,10 @@ app.post('/api/auth/login', (req, res) => {
     });
 });
 
-app.get('/api/health', (req, res) => {
-    res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
-});
+// General API routes (less strict rate limit)
+app.use('/api/user', apiLimiter, authMiddleware); // Protect all subsequent user routes
 
-app.get('/api/user/data', authMiddleware, async (req, res) => {
+app.get('/api/user/data', async (req, res) => {
     try {
         const userData = await fetchUserData(req.user.id);
         res.json(userData);
@@ -385,7 +391,7 @@ app.get('/api/user/data', authMiddleware, async (req, res) => {
     }
 });
 
-app.post('/api/user/favorites', authMiddleware, (req, res) => {
+app.post('/api/user/favorites', (req, res) => {
     const { dramaUrl, isFavorite } = req.body;
     if (typeof dramaUrl !== 'string' || typeof isFavorite !== 'boolean') return res.status(400).json({ message: 'Invalid payload.' });
     const sql = isFavorite 
@@ -398,7 +404,7 @@ app.post('/api/user/favorites', authMiddleware, (req, res) => {
     });
 });
 
-app.post('/api/user/statuses', authMiddleware, (req, res) => {
+app.post('/api/user/statuses', (req, res) => {
     const { dramaUrl, status, currentEpisode } = req.body;
     if (typeof dramaUrl !== 'string' || typeof status !== 'string' || (currentEpisode !== undefined && typeof currentEpisode !== 'number')) {
          return res.status(400).json({ message: 'Invalid payload.' });
@@ -418,7 +424,7 @@ app.post('/api/user/statuses', authMiddleware, (req, res) => {
     }
 });
 
-app.post('/api/user/reviews/episodes', authMiddleware, (req, res) => {
+app.post('/api/user/reviews/episodes', (req, res) => {
     const { dramaUrl, episodeNumber, text, clientUpdatedAt, force } = req.body;
     if (typeof dramaUrl !== 'string' || typeof episodeNumber !== 'number' || typeof text !== 'string' || typeof clientUpdatedAt !== 'number' || (force !== undefined && typeof force !== 'boolean')) {
         return res.status(400).json({ message: 'Invalid payload.' });
@@ -445,7 +451,7 @@ app.post('/api/user/reviews/episodes', authMiddleware, (req, res) => {
     });
 });
 
-// --- GLOBAL ERROR HANDLER ---
+// --- GLOBAL ERROR HANDLER (MUST BE LAST) ---
 app.use((err, req, res, next) => {
     console.error("An unexpected error occurred:", err.stack);
     res.status(500).json({ message: 'Something broke! A server error occurred.' });
