@@ -570,9 +570,12 @@ app.post('/api/auth/register', async (req, res) => {
         const token = jwt.sign({ id: user.id, username: user.username, isAdmin: !!user.is_admin }, JWT_SECRET, { expiresIn: '24h' });
         res.cookie('token', token, { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'strict', maxAge: 24 * 60 * 60 * 1000 });
         
+        // A new user has no data, so we can fetch it to get the correct empty structure.
+        const userData = await fetchUserData(user.id);
+
         res.status(201).json({ 
             user: { username: user.username, isAdmin: !!user.is_admin },
-            data: { favorites: [], statuses: {}, reviews: {}, episodeReviews: {} }
+            data: userData
         });
     } catch (err) {
         if (err.code === 'ER_DUP_ENTRY') {
@@ -596,7 +599,18 @@ app.post('/api/auth/login', async (req, res) => {
         
         const token = jwt.sign({ id: user.id, username: user.username, isAdmin: !!user.is_admin }, JWT_SECRET, { expiresIn: '24h' });
         res.cookie('token', token, { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'strict', maxAge: 24 * 60 * 60 * 1000 });
-        res.json({ user: { username: user.username, isAdmin: !!user.is_admin } });
+        
+        // Fetch and include user data in the login response
+        try {
+            const userData = await fetchUserData(user.id);
+            res.json({
+                user: { username: user.username, isAdmin: !!user.is_admin },
+                data: userData
+            });
+        } catch (fetchErr) {
+            console.error("Failed to fetch user data during login:", fetchErr);
+            res.status(500).json({ message: 'Login succeeded, but failed to fetch user data.' });
+        }
     } catch (err) {
         res.status(500).json({ message: "Database error" });
     }

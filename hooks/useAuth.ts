@@ -205,24 +205,20 @@ export const useAuth = (onLoginSuccess?: () => void, openConflictModal?: (data: 
     const login = useCallback(async (username: string, password: string): Promise<string | null> => {
         if (BACKEND_MODE) {
             try {
-                // 1. Authenticate. The server will set the cookie.
+                // Authenticate. The server will set the cookie and return all user data.
                 const loginRes = await fetch(`${API_BASE_URL}/auth/login`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ username, password }),
                     credentials: 'include',
                 });
-                const loginData = await loginRes.json();
-                if (!loginRes.ok) return loginData.message || "Login failed.";
+                const responseData = await loginRes.json();
+                if (!loginRes.ok) return responseData.message || "Login failed.";
                 
-                // 2. Fetch user data to populate the app state. The browser sends the new cookie.
-                const dataRes = await fetch(`${API_BASE_URL}/user/data`, {
-                    credentials: 'include',
-                });
-                if (!dataRes.ok) return "Login succeeded, but failed to fetch user data.";
-                const { user, data } = await dataRes.json();
+                // The backend now returns user and data directly, so no second call is needed.
+                const { user, data } = responseData;
                 
-                // 3. Set all state at once. The user object now contains isAdmin.
+                // Set all state at once.
                 setCurrentUser(user);
                 setUserData(data);
                 
