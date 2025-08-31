@@ -4,16 +4,14 @@
  */
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { AdminUserView, UserData, Drama, DramaStatus } from '../types';
-import { API_BASE_URL } from '../config';
-import { ChevronRightIcon, EyeIcon, BookmarkIcon, CheckCircleIcon, HeartIcon, PauseIcon, XCircleIcon } from './Icons';
-
-// Helper to fetch data using credentials
-const adminFetch = (endpoint: string, options?: RequestInit) => {
-    return fetch(`${API_BASE_URL}${endpoint}`, {
-        ...options,
-        credentials: 'include',
-    });
-};
+import { ChevronRightIcon, EyeIcon, BookmarkIcon, CheckCircleIcon, PauseIcon, XCircleIcon } from './Icons';
+import {
+    fetchAllUsers,
+    fetchUserDataForAdmin,
+    toggleUserBan,
+    deleteUser,
+    resetUserPassword
+} from '../hooks/lib/adminApi';
 
 interface AdminPanelProps {
     allDramas: Drama[];
@@ -120,12 +118,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ allDramas }) => {
     const [error, setError] = useState<string | null>(null);
     const [expandedUser, setExpandedUser] = useState<{ id: number, data: UserData } | null>(null);
 
-    const fetchUsers = useCallback(async () => {
+    const fetchUsersCb = useCallback(async () => {
         setIsLoading(true);
         try {
-            const res = await adminFetch('/admin/users');
-            if (!res.ok) throw new Error('Failed to fetch users.');
-            const data = await res.json();
+            const data = await fetchAllUsers();
             setUsers(data);
             setError(null);
         } catch (err) {
@@ -136,19 +132,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ allDramas }) => {
     }, []);
 
     useEffect(() => {
-        fetchUsers();
-    }, [fetchUsers]);
+        fetchUsersCb();
+    }, [fetchUsersCb]);
 
     const handleToggleBan = async (userId: number, currentBanStatus: boolean) => {
         if (window.confirm(`Are you sure you want to ${currentBanStatus ? 'unban' : 'ban'} this user?`)) {
             try {
-                const res = await adminFetch(`/admin/users/${userId}/ban`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ ban: !currentBanStatus }),
-                });
-                if (!res.ok) throw new Error('Failed to update ban status.');
-                // Optimistic update
+                await toggleUserBan(userId, !currentBanStatus);
                 setUsers(prev => prev.map(u => u.id === userId ? { ...u, is_banned: !currentBanStatus } : u));
             } catch (err) {
                 alert(`Error: ${err instanceof Error ? err.message : 'Unknown error'}`);
@@ -159,8 +149,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ allDramas }) => {
     const handleDeleteUser = async (userId: number, username: string) => {
         if (window.confirm(`Are you sure you want to PERMANENTLY DELETE user '${username}'? This cannot be undone.`)) {
             try {
-                const res = await adminFetch(`/admin/users/${userId}`, { method: 'DELETE' });
-                if (!res.ok) throw new Error('Failed to delete user.');
+                await deleteUser(userId);
                 setUsers(prev => prev.filter(u => u.id !== userId));
             } catch (err) {
                 alert(`Error: ${err instanceof Error ? err.message : 'Unknown error'}`);
@@ -171,9 +160,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ allDramas }) => {
     const handleResetPassword = async (userId: number) => {
         if (window.confirm('Are you sure you want to reset this user\'s password?')) {
             try {
-                const res = await adminFetch(`/admin/users/${userId}/reset-password`, { method: 'POST' });
-                if (!res.ok) throw new Error('Failed to reset password.');
-                const { newPassword } = await res.json();
+                const { newPassword } = await resetUserPassword(userId);
                 alert(`Password has been reset. The new temporary password is: ${newPassword}`);
             } catch (err) {
                 alert(`Error: ${err instanceof Error ? err.message : 'Unknown error'}`);
@@ -187,9 +174,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ allDramas }) => {
             return;
         }
         try {
-            const res = await adminFetch(`/admin/users/${userId}/data`);
-            if (!res.ok) throw new Error('Failed to fetch user data.');
-            const data = await res.json();
+            const data = await fetchUserDataForAdmin(userId);
             setExpandedUser({ id: userId, data });
         } catch (err) {
             alert(`Error: ${err instanceof Error ? err.message : 'Unknown error'}`);

@@ -12,7 +12,6 @@ import { useAuth } from './hooks/useAuth';
 import { useDramas } from './hooks/useDramas';
 import { useDebounce } from './hooks/useDebounce';
 import { LOCAL_STORAGE_KEYS, ITEMS_PER_PAGE } from './hooks/lib/constants';
-import { BACKEND_MODE } from './config';
 
 // Component Imports
 import { Header } from './components/Header';
@@ -211,7 +210,7 @@ export default function App() {
                     />
                 );
             case 'admin':
-                 if (BACKEND_MODE && currentUser?.isAdmin) {
+                 if (currentUser?.isAdmin) {
                     return <AdminPanel allDramas={allDramas} />;
                 }
                 // Fallback for non-admins trying to access the route
@@ -311,11 +310,7 @@ export default function App() {
                 />
             )}
             
-            {/* Fix: Cast `navigateTo` to the type expected by BottomNavBar to resolve TypeScript error.
-                The `navigateTo` function from `useUIState` can handle all `ActiveView` types,
-                but `BottomNavBar` is only concerned with a subset of those views. This casting
-                is safe because `BottomNavBar` will only ever call it with the allowed subset. */}
-            {currentUser && <BottomNavBar activeView={activeView} onNavigate={navigateTo as (view: 'home' | 'my-list' | 'all-reviews') => void} />}
+            {currentUser && <BottomNavBar activeView={activeView} onNavigate={navigateTo} currentUser={currentUser} />}
         </div>
     );
 }

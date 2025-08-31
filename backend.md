@@ -11,14 +11,16 @@ This document provides a comprehensive guide to setting up and running the optio
     -   **Framework**: Express.js
     -   **Real-Time**: Socket.IO for WebSocket communication.
     -   **Database**: SQLite3 (a lightweight, file-based SQL database)
-    -   **Authentication**: JSON Web Tokens (JWT) for secure sessions.
+    -   **Authentication**: JSON Web Tokens (JWT) via secure `HttpOnly` cookies.
     -   **Password Hashing**: `bcryptjs` to securely store user passwords.
     -   **Configuration**: `dotenv` for managing environment variables.
     -   **Security**: `helmet` for security headers and `express-rate-limit` for request throttling.
+    -   **Cookie Handling**: `cookie-parser` for Express and `cookie` for Socket.IO.
 
 -   **Functionality**:
-    -   Handles user registration and login.
-    -   Provides authenticated endpoints for users to manage their data.
+    -   Handles user registration and login with secure cookie-based sessions.
+    -   **Default Admin User**: Automatically creates an `admin` user with password `admin` on first startup.
+    -   **Full Admin Panel Backend**: Provides protected API endpoints for admins to list, ban, delete, and manage all users.
     -   **Automatic Migrations**: The database schema is automatically created and updated on server startup.
     -   **Real-Time Sync**: When a user makes a change on one device, the server instantly pushes a granular update event to all of that user's other logged-in devices.
     -   Includes logic for **conflict resolution** to support multi-device, offline-first usage.
@@ -39,7 +41,7 @@ This document provides a comprehensive guide to setting up and running the optio
 
 3.  **Install Dependencies**: Install the necessary packages for the server.
     ```bash
-    npm install express sqlite3 cors bcryptjs jsonwebtoken socket.io helmet express-rate-limit dotenv
+    npm install express sqlite3 cors bcryptjs jsonwebtoken socket.io helmet express-rate-limit dotenv cookie-parser cookie
     ```
 
 4.  **Install Development Dependency**: Install `nodemon` for automatic server restarts during development.
@@ -126,6 +128,9 @@ const fs = require('fs');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const dotenv = require('dotenv');
+const cookieParser = require('cookie-parser');
+const cookie = require('cookie');
+const crypto = require('crypto');
 
 // --- CONFIGURATION ---
 dotenv.config(); // Load environment variables from .env file
@@ -157,13 +162,14 @@ const corsOptions = {
             callback(new Error('Not allowed by CORS'));
         }
     },
-    methods: ['GET', 'POST', 'OPTIONS'],
+    methods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
+    credentials: true, // This is crucial for cookies
 };
 
 // --- DATABASE MIGRATIONS ---
 const migrations = [
-    `CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE, password TEXT)`,
+    `CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE, password TEXT, is_admin BOOLEAN DEFAULT 0 NOT NULL, is_banned BOOLEAN DEFAULT 0 NOT NULL)`,
     `CREATE TABLE IF NOT EXISTS dramas (url TEXT PRIMARY KEY, title TEXT, data TEXT)`,
     `CREATE TABLE IF NOT EXISTS user_favorites (user_id INTEGER, drama_url TEXT, PRIMARY KEY (user_id, drama_url), FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE, FOREIGN KEY (drama_url) REFERENCES dramas(url) ON DELETE CASCADE)`,
     `CREATE TABLE IF NOT EXISTS user_statuses (user_id INTEGER, drama_url TEXT, status TEXT, currentEpisode INTEGER, PRIMARY KEY (user_id, drama_url), FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE, FOREIGN KEY (drama_url) REFERENCES dramas(url) ON DELETE CASCADE)`,
@@ -205,6 +211,36 @@ async function runMigrations() {
                 console.log("All pending migrations applied successfully.");
                 resolve();
             });
+        });
+    });
+}
+
+async function seedAdminUser() {
+    return new Promise((resolve, reject) => {
+        db.get('SELECT id, is_admin FROM users WHERE username = ?', ['admin'], (err, user) => {
+            if (err) return reject(err);
+            if (user) {
+                // Admin user already exists. Ensure they have admin privileges.
+                if (!user.is_admin) {
+                     db.run('UPDATE users SET is_admin = 1 WHERE id = ?', [user.id], (updateErr) => {
+                        if (updateErr) return reject(updateErr);
+                        console.log("Updated existing 'admin' user to have admin privileges.");
+                        resolve();
+                    });
+                } else {
+                    console.log("Default admin user 'admin' already exists and has admin rights.");
+                    resolve();
+                }
+            } else {
+                // Admin user does not exist, create it.
+                console.log("Default admin user not found. Creating 'admin' user...");
+                const hashedPassword = bcrypt.hashSync('admin', 8);
+                db.run('INSERT INTO users (username, password, is_admin, is_banned) VALUES (?, ?, ?, ?)', ['admin', hashedPassword, 1, 0], function(insertErr) {
+                    if (insertErr) return reject(insertErr);
+                    console.log("Default admin user 'admin' created successfully.");
+                    resolve();
+                });
+            }
         });
     });
 }
@@ -266,15 +302,21 @@ async function loadDramasIntoMemory() {
 }
 
 const authMiddleware = (req, res, next) => {
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) return res.status(401).json({ message: 'Authentication token required' });
-    const token = authHeader.split(' ')[1];
+    const token = req.cookies.token;
+    if (!token) return res.status(401).json({ message: 'Authentication required' });
     try {
         req.user = jwt.verify(token, JWT_SECRET);
         next();
     } catch (err) {
         return res.status(401).json({ message: 'Invalid or expired token' });
     }
+};
+
+const adminAuthMiddleware = (req, res, next) => {
+    if (!req.user || !req.user.isAdmin) {
+        return res.status(403).json({ message: 'Forbidden: Administrator access required.' });
+    }
+    next();
 };
 
 function emitToUserRoom(userId, event, payload) {
@@ -315,8 +357,9 @@ app.set('trust proxy', 1);
 app.use(helmet());
 const apiLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 200, standardHeaders: true, legacyHeaders: false, message: 'Too many requests, please try again after 15 minutes.' });
 const authLimiter = rateLimit({ windowMs: 30 * 60 * 1000, max: 10, message: 'Too many authentication attempts, please try again after 30 minutes.' });
-app.use(express.json());
 app.use(cors(corsOptions));
+app.use(express.json());
+app.use(cookieParser());
 const io = new Server(server, { 
     cors: corsOptions,
     path: SOCKET_IO_PATH,
@@ -325,11 +368,17 @@ console.log(`Socket.IO server listening on path: ${SOCKET_IO_PATH}`);
 
 // --- SOCKET.IO MIDDLEWARE & LISTENERS ---
 io.use((socket, next) => {
-    const token = socket.handshake.auth.token;
-    console.log(`[Socket.IO Auth] Attempting to authenticate connection from ${socket.handshake.address} with transport ${socket.handshake.query.transport}`);
+    const cookieHeader = socket.handshake.headers.cookie;
+    console.log(`[Socket.IO Auth] Attempting to auth connection from ${socket.handshake.address}`);
+    if (!cookieHeader) {
+        console.error(`[Socket.IO Auth] REJECTED: No cookie header provided from ${socket.handshake.address}.`);
+        return next(new Error('Authentication error: Cookie not provided.'));
+    }
+    const cookies = cookie.parse(cookieHeader);
+    const token = cookies.token;
     if (!token) {
-        console.error(`[Socket.IO Auth] REJECTED: No token provided from ${socket.handshake.address}.`);
-        return next(new Error('Authentication error: Token not provided.'));
+        console.error(`[Socket.IO Auth] REJECTED: Auth token cookie not found. Address: ${socket.handshake.address}.`);
+        return next(new Error('Authentication error: Token cookie not found.'));
     }
     jwt.verify(token, JWT_SECRET, (err, decoded) => {
         if (err) {
@@ -345,11 +394,13 @@ io.on('connection', (socket) => {
     console.log(`[Socket.IO Connect] Client connected: '${socket.user.username}' (ID: ${socket.user.id}) using transport: ${socket.conn.transport.name}. Socket ID: ${socket.id}`);
     socket.join(`user_${socket.user.id}`);
     console.log(`[Socket.IO Rooms] User '${socket.user.username}' joined room 'user_${socket.user.id}'`);
-
-    // Security Hardening: Add a wildcard listener to log any unexpected, unsolicited events from clients.
-    // In our architecture, clients should not be emitting any events after connection. This serves as a monitor.
+    
+    // Proactive Security: Disconnect clients that send unsolicited events.
+    // Our architecture uses sockets for server-to-client pushes only. Any event
+    // from a client is unexpected and potentially malicious.
     socket.onAny((event, ...args) => {
-        console.warn(`[Socket.IO Security] Received unexpected event '${event}' from user '${socket.user.username}' (ID: ${socket.user.id}).`);
+        console.warn(`[Socket.IO Security] Received unexpected event '${event}' from user '${socket.user.username}'. Disconnecting socket.`);
+        socket.disconnect(true); // Force disconnection
     });
 
     socket.on('disconnect', (reason) => {
@@ -360,11 +411,11 @@ io.on('connection', (socket) => {
 // --- API ENDPOINTS ---
 app.get('/api/health', (req, res) => res.status(200).json({ status: 'ok' }));
 
-app.get('/api/dramas/metadata', (req, res) => {
+app.get('/api/dramas/metadata', apiLimiter, (req, res) => {
     res.json(inMemoryMetadata);
 });
 
-app.get('/api/dramas', (req, res) => {
+app.get('/api/dramas', apiLimiter, (req, res) => {
     const { page = '1', limit = '24', search = '', minRating = '0', genres = '', excludeGenres = '', tags = '', excludeTags = '', countries = '', cast = '', sort = '[]' } = req.query;
     const filters = {
         genres: genres ? genres.split(',') : [],
@@ -429,7 +480,7 @@ app.get('/api/dramas', (req, res) => {
 
     res.json({
         totalItems,
-        dramas: paginatedItems.map(({ genresSet, tagsSet, castSet, score, ...rest }) => rest), // Remove helper sets and score before sending
+        dramas: paginatedItems.map(({ genresSet, tagsSet, castSet, score, ...rest }) => rest),
         currentPage: pageNum,
         totalPages: Math.ceil(totalItems / limitNum)
     });
@@ -439,17 +490,14 @@ app.use('/api/auth', authLimiter);
 
 app.post('/api/auth/register', (req, res) => {
     const { username, password } = req.body;
-    // Security Hardening: Add strict regex for username validation to prevent injection.
     const usernameRegex = /^[a-zA-Z0-9_.-]{3,20}$/;
     if (typeof username !== 'string' || typeof password !== 'string' || !usernameRegex.test(username) || password.length < 6) { 
-        return res.status(400).json({ message: "Invalid input: Username must be 3-20 alphanumeric characters (letters, numbers, _, ., -). Password must be at least 6 characters." }); 
+        return res.status(400).json({ message: "Invalid input: Username must be 3-20 alphanumeric characters. Password must be at least 6 characters." }); 
     }
     const hashedPassword = bcrypt.hashSync(password, 8);
-    db.run('INSERT INTO users (username, password) VALUES (?, ?)', [username, hashedPassword], function(err) {
+    db.run('INSERT INTO users (username, password, is_admin, is_banned) VALUES (?, ?, ?, ?)', [username, hashedPassword, 0, 0], function(err) {
         if (err) return res.status(409).json({ message: "Username already exists" });
-        const userId = this.lastID;
-        const token = jwt.sign({ id: userId, username: username }, JWT_SECRET, { expiresIn: '24h' });
-        res.status(201).json({ message: "User created successfully", user: { username }, token });
+        res.status(201).json({ message: "User created successfully" });
     });
 });
 
@@ -457,10 +505,19 @@ app.post('/api/auth/login', (req, res) => {
     const { username, password } = req.body;
     if (typeof username !== 'string' || typeof password !== 'string' || !username || !password) { return res.status(400).json({ message: "Username and password are required." }); }
     db.get('SELECT * FROM users WHERE username = ?', [username], (err, user) => {
-        if (err || !user || !bcrypt.compareSync(password, user.password)) { return res.status(401).json({ message: 'Invalid credentials' }); }
-        const token = jwt.sign({ id: user.id, username: user.username }, JWT_SECRET, { expiresIn: '24h' });
-        res.json({ user: { username: user.username }, token });
+        if (err) return res.status(500).json({ message: "Database error." });
+        if (!user || !bcrypt.compareSync(password, user.password)) { return res.status(401).json({ message: 'Invalid credentials' }); }
+        if (user.is_banned) return res.status(403).json({ message: 'This account has been banned.' });
+        
+        const token = jwt.sign({ id: user.id, username: user.username, isAdmin: !!user.is_admin }, JWT_SECRET, { expiresIn: '24h' });
+        res.cookie('token', token, { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'strict', maxAge: 24 * 60 * 60 * 1000 });
+        res.json({ user: { username: user.username, isAdmin: !!user.is_admin } });
     });
+});
+
+app.post('/api/auth/logout', (req, res) => {
+    res.clearCookie('token');
+    res.status(200).json({ message: "Logged out successfully" });
 });
 
 app.use('/api/user', authMiddleware, apiLimiter); 
@@ -468,7 +525,7 @@ app.use('/api/user', authMiddleware, apiLimiter);
 app.get('/api/user/data', async (req, res) => {
     try {
         const userData = await fetchUserData(req.user.id);
-        res.json({ user: { username: req.user.username }, data: userData });
+        res.json({ user: { username: req.user.username, isAdmin: !!req.user.isAdmin }, data: userData });
     } catch (error) {
         res.status(500).json({ message: "Failed to fetch user data." });
     }
@@ -532,6 +589,66 @@ app.post('/api/user/reviews/episodes', (req, res) => {
     });
 });
 
+// --- ADMIN API ENDPOINTS ---
+app.use('/api/admin', authMiddleware, adminAuthMiddleware, apiLimiter);
+
+app.get('/api/admin/users', (req, res) => {
+    db.all('SELECT id, username, is_banned FROM users', (err, rows) => {
+        if (err) return res.status(500).json({ message: 'Database error.' });
+        res.json(rows);
+    });
+});
+
+app.get('/api/admin/users/:id/data', async (req, res) => {
+    const userId = parseInt(req.params.id, 10);
+    if (isNaN(userId)) return res.status(400).json({ message: 'Invalid user ID.' });
+    try {
+        const userData = await fetchUserData(userId);
+        res.json(userData);
+    } catch (error) {
+        res.status(500).json({ message: 'Failed to fetch user data.' });
+    }
+});
+
+app.post('/api/admin/users/:id/ban', (req, res) => {
+    const userId = parseInt(req.params.id, 10);
+    const { ban } = req.body;
+    if (isNaN(userId) || typeof ban !== 'boolean') return res.status(400).json({ message: 'Invalid payload.' });
+    db.get('SELECT is_admin FROM users WHERE id = ?', [userId], (err, user) => {
+        if (err || !user) return res.status(404).json({ message: 'User not found.' });
+        if (user.is_admin) return res.status(403).json({ message: 'Cannot ban an administrator.' });
+        db.run('UPDATE users SET is_banned = ? WHERE id = ?', [ban ? 1 : 0, userId], function(err) {
+            if (err) return res.status(500).json({ message: 'Database error.' });
+            res.status(200).json({ success: true });
+        });
+    });
+});
+
+app.delete('/api/admin/users/:id', (req, res) => {
+    const userId = parseInt(req.params.id, 10);
+    if (isNaN(userId)) return res.status(400).json({ message: 'Invalid user ID.' });
+    db.get('SELECT is_admin FROM users WHERE id = ?', [userId], (err, user) => {
+        if (err || !user) return res.status(404).json({ message: 'User not found.' });
+        if (user.is_admin) return res.status(403).json({ message: 'Cannot delete an administrator.' });
+        db.run('DELETE FROM users WHERE id = ?', [userId], function(err) {
+            if (err) return res.status(500).json({ message: 'Database error.' });
+            res.status(200).json({ success: true });
+        });
+    });
+});
+
+app.post('/api/admin/users/:id/reset-password', (req, res) => {
+    const userId = parseInt(req.params.id, 10);
+    if (isNaN(userId)) return res.status(400).json({ message: 'Invalid user ID.' });
+    const newPassword = crypto.randomBytes(8).toString('hex');
+    const hashedPassword = bcrypt.hashSync(newPassword, 8);
+    db.run('UPDATE users SET password = ? WHERE id = ?', [hashedPassword, userId], function(err) {
+        if (err) return res.status(500).json({ message: 'Database error.' });
+        if (this.changes === 0) return res.status(404).json({ message: 'User not found.' });
+        res.status(200).json({ success: true, newPassword });
+    });
+});
+
 // --- ERROR HANDLING & SERVER START ---
 app.use((err, req, res, next) => {
     console.error("An unexpected error occurred:", err);
@@ -541,7 +658,8 @@ app.use((err, req, res, next) => {
 async function startServer() {
     try {
         await runMigrations();
-        await loadDramasIntoMemory(); // Load data into cache before starting server
+        await seedAdminUser();
+        await loadDramasIntoMemory();
         server.listen(PORT, () => {
             console.log(`Server with real-time support is running on http://localhost:${PORT}`);
         });
@@ -550,7 +668,23 @@ async function startServer() {
         process.exit(1);
     }
 }
-startServer();
+
+// --- SEED SCRIPT RUNNER ---
+if (process.argv.includes('--seed')) {
+    seedDatabase()
+      .then(() => {
+          console.log("Seeding complete. Closing database connection.");
+          db.close();
+          process.exit(0);
+       })
+      .catch(err => {
+          console.error("Seeding failed:", err);
+          db.close();
+          process.exit(1);
+      });
+} else {
+    startServer();
+}
 
 process.on('SIGINT', () => {
     console.log('SIGINT signal received: closing HTTP server and database.');
@@ -563,21 +697,6 @@ process.on('SIGINT', () => {
         });
     });
 });
-
-// --- SEED SCRIPT RUNNER ---
-if (process.argv.includes('--seed')) {
-    seedDatabase()
-      .then(() => {
-          console.log("Seeding complete. Closing database connection.");
-          db.close();
-       })
-      .catch(err => {
-          console.error("Seeding failed:", err);
-          db.close();
-          process.exit(1);
-      });
-}
-
 ```
 ## 5. Running the Backend
 
@@ -587,7 +706,7 @@ The workflow is now simpler. The database schema is handled automatically.
     ```bash
     npm run dev
     ```
-    The first time you run this, the server will automatically create the `dramas.db` file, run all necessary schema migrations, and load the drama data into memory before starting.
+    The first time you run this, the server will automatically create the `dramas.db` file, run all necessary schema migrations, create the default `admin` user, and load the drama data into memory before starting.
 
 2.  **Seed the Database with Data (One-Time Command)**:
     This command now only populates the tables with data from `dramas.json`. You only need to run this once after the initial setup, or again if you update `dramas.json`.

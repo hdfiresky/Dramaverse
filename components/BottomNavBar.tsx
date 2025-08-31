@@ -3,18 +3,25 @@
  * This component provides primary navigation for logged-in users on smaller screens.
  */
 import React from 'react';
-import { HomeIcon, ListBulletIcon, ChatBubbleOvalLeftEllipsisIcon } from './Icons';
+import { HomeIcon, ListBulletIcon, ChatBubbleOvalLeftEllipsisIcon, ShieldCheckIcon } from './Icons';
+import { ActiveView } from '../hooks/useUIState';
+import { User } from '../types';
 
 interface BottomNavBarProps {
-  activeView: 'home' | 'my-list' | 'all-reviews';
-  onNavigate: (view: 'home' | 'my-list' | 'all-reviews') => void;
+  activeView: ActiveView;
+  onNavigate: (view: ActiveView) => void;
+  currentUser: User | null;
 }
 
-const navItems = [
-    { view: 'home' as const, icon: HomeIcon, label: 'Home' },
-    { view: 'my-list' as const, icon: ListBulletIcon, label: 'My List' },
-    { view: 'all-reviews' as const, icon: ChatBubbleOvalLeftEllipsisIcon, label: 'Reviews' },
+// FIX: Widened the type of navItems's view property to ActiveView. This allows the `adminItem`
+// which has a view of 'admin', to be pushed to arrays created from navItems without a type conflict.
+const navItems: { view: ActiveView; icon: typeof HomeIcon; label: string }[] = [
+    { view: 'home', icon: HomeIcon, label: 'Home' },
+    { view: 'my-list', icon: ListBulletIcon, label: 'My List' },
+    { view: 'all-reviews', icon: ChatBubbleOvalLeftEllipsisIcon, label: 'Reviews' },
 ];
+
+const adminItem = { view: 'admin' as const, icon: ShieldCheckIcon, label: 'Admin' };
 
 /**
  * A navigation bar that is fixed to the bottom of the viewport on mobile screens.
@@ -23,10 +30,15 @@ const navItems = [
  * @param {BottomNavBarProps} props - The props for the BottomNavBar component.
  * @returns {React.ReactElement} The rendered bottom navigation bar.
  */
-export const BottomNavBar: React.FC<BottomNavBarProps> = ({ activeView, onNavigate }) => {
+export const BottomNavBar: React.FC<BottomNavBarProps> = ({ activeView, onNavigate, currentUser }) => {
+    const itemsToRender = [...navItems];
+    if (currentUser?.isAdmin) {
+        itemsToRender.push(adminItem);
+    }
+
     return (
         <nav className="md:hidden fixed bottom-0 left-0 right-0 h-16 bg-brand-secondary/90 backdrop-blur-sm border-t border-slate-700/50 z-30 flex justify-around items-center shadow-[0_-2px_10px_rgba(0,0,0,0.1)]">
-            {navItems.map(item => {
+            {itemsToRender.map(item => {
                 const isActive = activeView === item.view;
                 return (
                     <button

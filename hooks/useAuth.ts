@@ -13,6 +13,14 @@ import { BASE_PATH, BACKEND_MODE, API_BASE_URL, WEBSOCKET_URL, ENABLE_DEBUG_LOGG
 
 const EMPTY_USER_DATA: UserData = { favorites: [], statuses: {}, reviews: {}, episodeReviews: {} };
 
+// A helper type for the user object stored in localStorage in frontend-only mode.
+interface LocalStoredUser {
+    id: number;
+    password: string;
+    isAdmin?: boolean;
+    is_banned?: boolean;
+}
+
 /**
  * A hook to manage the application's authentication state and user data.
  * @param {() => void} [onLoginSuccess] - An optional callback function to be executed upon a successful login.
@@ -30,8 +38,28 @@ export const useAuth = (onLoginSuccess?: () => void, openConflictModal?: (data: 
 
     // --- Frontend-Only Mode State ---
     const [localLoggedInUser, setLocalLoggedInUser] = useLocalStorage<User | null>(LOCAL_STORAGE_KEYS.LOGGED_IN_USER, null);
-    const [localUsers, setLocalUsers] = useLocalStorage<Record<string, { password: string }>>(LOCAL_STORAGE_KEYS.USERS, {});
+    const [localUsers, setLocalUsers] = useLocalStorage<Record<string, LocalStoredUser>>(LOCAL_STORAGE_KEYS.USERS, {});
     
+    // Effect to seed default admin user in frontend-only mode on initial load.
+    useEffect(() => {
+        if (!BACKEND_MODE) {
+            setLocalUsers(currentUsers => {
+                // Check if 'admin' user already exists to prevent overwriting
+                if (!currentUsers['admin']) {
+                    console.log('Seeding default admin user for frontend-only mode.');
+                    const newAdmin: LocalStoredUser = {
+                        id: 0, // Use a consistent, predictable ID for the default admin
+                        password: 'admin', // Default password as requested
+                        isAdmin: true,
+                        is_banned: false,
+                    };
+                    return { ...currentUsers, admin: newAdmin };
+                }
+                return currentUsers; // No change needed
+            });
+        }
+    }, [setLocalUsers]); // This effect runs only once on component mount.
+
     // Effect to initialize auth state from storage, behavior depends on BACKEND_MODE
     useEffect(() => {
         const initialize = async () => {
@@ -174,8 +202,6 @@ export const useAuth = (onLoginSuccess?: () => void, openConflictModal?: (data: 
         };
     }, [socket]);
 
-    // Fix: The 'login' function is defined before 'register' because 'register' calls 'login',
-    // preventing a 'used before declaration' error.
     const login = useCallback(async (username: string, password: string): Promise<string | null> => {
         if (BACKEND_MODE) {
             try {
@@ -207,15 +233,18 @@ export const useAuth = (onLoginSuccess?: () => void, openConflictModal?: (data: 
                 return "Could not connect to the server.";
             }
         } else {
-            const usersFromStorage = JSON.parse(window.localStorage.getItem(LOCAL_STORAGE_KEYS.USERS) || '{}');
-            if (!usersFromStorage[username] || usersFromStorage[username].password !== password) {
+            const userFromStorage = localUsers[username];
+            if (!userFromStorage || userFromStorage.password !== password) {
                 return "Invalid username or password.";
             }
-            setLocalLoggedInUser({ username });
+            if (userFromStorage.is_banned) {
+                return "This account has been banned.";
+            }
+            setLocalLoggedInUser({ username, isAdmin: userFromStorage.isAdmin || false });
             onLoginSuccess?.();
             return null;
         }
-    }, [onLoginSuccess, setLocalLoggedInUser]);
+    }, [onLoginSuccess, setLocalLoggedInUser, localUsers]);
 
     const register = useCallback(async (username: string, password: string): Promise<string | null> => {
         if (!username || !password) return "Username and password cannot be empty.";
@@ -237,13 +266,21 @@ export const useAuth = (onLoginSuccess?: () => void, openConflictModal?: (data: 
             }
         } else {
             if (localUsers[username]) return "Username already exists.";
-            setLocalUsers({ ...localUsers, [username]: { password } });
-            // For frontend-only, we now automatically log the user in after registration.
-            setLocalLoggedInUser({ username });
-            onLoginSuccess?.();
-            return null;
+            
+            // The default 'admin' account is now seeded. New user registrations are never admins by default.
+            const newUser: LocalStoredUser = {
+                id: Date.now(), // Simple unique ID
+                password: password,
+                isAdmin: false,
+                is_banned: false,
+            };
+
+            setLocalUsers({ ...localUsers, [username]: newUser });
+
+            // Automatically log the new user in, which will set the correct session state
+            return await login(username, password);
         }
-    }, [localUsers, setLocalUsers, onLoginSuccess, setLocalLoggedInUser, login]);
+    }, [localUsers, setLocalUsers, login]);
 
     const logout = useCallback(async () => {
         if (BACKEND_MODE) {
