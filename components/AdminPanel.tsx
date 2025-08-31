@@ -431,10 +431,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ allDramas, currentUser }
                                     <div className="flex-1 min-w-0">
                                         <p className="font-medium text-brand-text-primary truncate">{user.username}</p>
                                         <div className="flex items-center gap-2 mt-1">
-                                            <span className={`px-2 py-0.5 text-xs font-semibold rounded-full ${user.is_banned ? 'bg-red-500/20 text-red-300' : 'bg-green-500/20 text-green-300'}`}>
+                                            <span className={`px-2 py-0.5 text-xs font-semibold rounded-full ${user.is_banned ? 'bg-red-500/20 text-red-300' : 'bg-blue-500/20 text-blue-300'}`}>
                                                 {user.is_banned ? 'Banned' : 'Active'}
                                             </span>
-                                            <span className={`px-2 py-0.5 text-xs font-semibold rounded-full ${user.isAdmin ? 'bg-yellow-500/20 text-yellow-300' : 'bg-slate-500/20 text-slate-300'}`}>
+                                            <span className={`px-2 py-0.5 text-xs font-semibold rounded-full ${user.isAdmin ? 'bg-indigo-500/20 text-indigo-300' : 'bg-slate-500/20 text-slate-300'}`}>
                                                 {user.isAdmin ? 'Admin' : 'User'}
                                             </span>
                                         </div>

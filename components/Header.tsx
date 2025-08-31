@@ -112,7 +112,7 @@ export const Header: React.FC<HeaderProps> = ({ onGoHome, onGoToMyList, onGoToAl
                             {currentUser.isAdmin && (
                                 <button 
                                     onClick={onGoToAdminPanel}
-                                    className="px-3 py-2 text-sm font-semibold bg-yellow-500/20 text-yellow-300 hover:bg-yellow-500/40 rounded-md transition-colors"
+                                    className="px-3 py-2 text-sm font-semibold bg-indigo-500/20 text-indigo-300 hover:bg-indigo-500/40 rounded-md transition-colors"
                                     title="Admin Panel"
                                     aria-label="Go to Admin Panel"
                                 >
