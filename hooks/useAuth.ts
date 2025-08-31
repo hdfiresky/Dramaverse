@@ -27,6 +27,7 @@ export const useAuth = (onLoginSuccess?: () => void, openConflictModal?: (data: 
 
     // --- Backend Mode State ---
     const [authToken, setAuthToken] = useLocalStorage<string | null>(LOCAL_STORAGE_KEYS.AUTH_TOKEN, null);
+    const [socket, setSocket] = useState<Socket | null>(null);
 
     // --- Frontend-Only Mode State ---
     const [localLoggedInUser, setLocalLoggedInUser] = useLocalStorage<User | null>(LOCAL_STORAGE_KEYS.LOGGED_IN_USER, null);
@@ -71,23 +72,45 @@ export const useAuth = (onLoginSuccess?: () => void, openConflictModal?: (data: 
         initialize();
     }, [authToken, localLoggedInUser, setAuthToken]);
 
-    // Effect to manage the real-time WebSocket connection.
+    // Effect to create and destroy the socket connection.
     useEffect(() => {
-        if (BACKEND_MODE && authToken && navigator.onLine) {
+        if (BACKEND_MODE && authToken) {
             const newSocket: Socket = io(WEBSOCKET_URL, {
-                auth: { token: authToken }
+                auth: { token: authToken },
+                reconnection: true,
+                reconnectionAttempts: 5,
+                reconnectionDelay: 1000,
             });
-            newSocket.on('connect', () => console.log('Connected to real-time server.'));
-            newSocket.on('disconnect', () => console.log('Disconnected from real-time server.'));
-            newSocket.on('user_data_updated', (newUserData: UserData) => {
-                console.log('Real-time data update received from server.');
-                setUserData(newUserData);
-            });
+            setSocket(newSocket);
+
+            // This cleanup function runs when authToken changes or the component unmounts
             return () => {
                 newSocket.disconnect();
+                setSocket(null);
             };
         }
     }, [authToken]);
+
+    // Effect to manage socket event listeners.
+    useEffect(() => {
+        if (!socket) return;
+
+        const handleUpdate = (newUserData: UserData) => {
+            console.log('Real-time data update received from server.');
+            setUserData(newUserData);
+        };
+        
+        socket.on('connect', () => console.log('Socket connected.'));
+        socket.on('disconnect', () => console.log('Socket disconnected.'));
+        socket.on('user_data_updated', handleUpdate);
+
+        // Cleanup listeners when the socket instance changes or component unmounts.
+        return () => {
+            socket.off('connect');
+            socket.off('disconnect');
+            socket.off('user_data_updated', handleUpdate);
+        };
+    }, [socket]);
 
 
     const register = useCallback(async (username: string, password: string): Promise<string | null> => {
