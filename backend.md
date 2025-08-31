@@ -13,6 +13,7 @@ This document provides a comprehensive guide to setting up and running the optio
     -   **Database**: SQLite3 (a lightweight, file-based SQL database)
     -   **Authentication**: JSON Web Tokens (JWT) for secure sessions.
     -   **Password Hashing**: `bcryptjs` to securely store user passwords.
+    -   **Configuration**: `dotenv` for managing environment variables.
     -   **Security**: `helmet` for security headers and `express-rate-limit` for request throttling.
 
 -   **Functionality**:
@@ -37,7 +38,7 @@ This document provides a comprehensive guide to setting up and running the optio
 
 3.  **Install Dependencies**: Install the necessary packages for the server.
     ```bash
-    npm install express sqlite3 cors bcryptjs jsonwebtoken socket.io helmet express-rate-limit
+    npm install express sqlite3 cors bcryptjs jsonwebtoken socket.io helmet express-rate-limit dotenv
     ```
 
 4.  **Install Development Dependency**: Install `nodemon` for automatic server restarts during development.
@@ -45,7 +46,33 @@ This document provides a comprehensive guide to setting up and running the optio
     npm install --save-dev nodemon
     ```
 
-5.  **Configure `package.json`**: Open the `package.json` file and add the following `scripts`:
+5.  **Create Environment File**: Create a new file named `.env` in the `backend` directory. This file will store your secret keys and configuration. **This file should never be committed to version control.**
+    ```env
+    # The port the server will run on
+    PORT=3001
+
+    # A long, random, and secret string for signing JWTs
+    # IMPORTANT: Change this to your own unique secret!
+    JWT_SECRET="replace-this-with-a-very-long-and-random-string"
+    ```
+
+6.  **Configure `.gitignore`**: Create a `.gitignore` file in the `backend` directory to prevent sensitive files from being committed.
+    ```gitignore
+    # Environment variables
+    .env
+
+    # Node modules
+    node_modules/
+
+    # Database file
+    dramas.db
+    dramas.db-journal
+
+    # NPM debug logs
+    npm-debug.log*
+    ```
+
+7.  **Configure `package.json`**: Open the `package.json` file and add the following `scripts`:
     ```json
     "scripts": {
       "start": "node server.js",
@@ -54,16 +81,18 @@ This document provides a comprehensive guide to setting up and running the optio
     },
     ```
 
-6.  **Copy Drama Data**: Copy the `dramas.json` file from `/public/data/dramas.json` into your new `/backend` directory. The seed script will use this file.
+8.  **Copy Drama Data**: Copy the `dramas.json` file from `/public/data/dramas.json` into your new `/backend` directory. The seed script will use this file.
 
 ## 3. Project Structure
 
-After setup, your `backend` directory will have a very simple structure:
+After setup, your `backend` directory will have this structure:
 
 ```
 /backend
-├── server.js       # The single, self-contained server file
-├── dramas.json     # Copied from the frontend
+├── .env              # Your secret keys and config (DO NOT COMMIT)
+├── .gitignore        # Tells Git which files to ignore
+├── server.js         # The single, self-contained server file
+├── dramas.json       # Copied from the frontend for seeding
 └── package.json
 ```
 
@@ -72,7 +101,7 @@ After setup, your `backend` directory will have a very simple structure:
 Create a file named `server.js` inside the `backend` directory and paste the entire code block below into it.
 
 ### `server.js`
-This single file contains all the logic for the database, authentication, API routes, and real-time communication.
+This single file contains all the logic for the database, authentication, API routes, and real-time communication. It now loads configuration from the `.env` file.
 
 ```javascript
 // --- DEPENDENCIES ---
@@ -86,11 +115,21 @@ const sqlite3 = require('sqlite3').verbose();
 const fs = require('fs');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
+const dotenv = require('dotenv');
 
 // --- CONFIGURATION ---
-const PORT = 3001;
+dotenv.config(); // Load environment variables from .env file
+
+const PORT = process.env.PORT || 3001;
+const JWT_SECRET = process.env.JWT_SECRET;
 const DB_SOURCE = "dramas.db";
-const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-key-change-me';
+
+// Security check: Ensure JWT_SECRET is set before starting
+if (!JWT_SECRET || JWT_SECRET === "replace-this-with-a-very-long-and-random-string") {
+    console.error("FATAL ERROR: JWT_SECRET is not set or is set to the default value in the .env file.");
+    console.error("Please set it to a long, random, and unique string for security.");
+    process.exit(1);
+}
 
 // --- DATABASE MIGRATIONS ---
 // New migrations can be added to this array. They will be run in order.
@@ -411,7 +450,7 @@ The workflow is now simpler. The database schema is handled automatically.
 
 ## 6. Production Deployment with PM2
 
-The PM2 deployment process remains the same and is highly recommended for production.
+For production, it is highly recommended to use a process manager like PM2 and to set your `JWT_SECRET` as an environment variable rather than in the `.env` file.
 
 1.  **Install PM2 Globally**:
     ```bash
@@ -419,13 +458,13 @@ The PM2 deployment process remains the same and is highly recommended for produc
     ```
 
 2.  **Start the Production Server**:
-    From your `/backend` directory, run the following command. This starts the app in "cluster" mode, sets a secure JWT secret, and the server will automatically handle migrations on startup.
+    From your `/backend` directory, run the following command. The server will automatically pick up the `PORT` from your `.env` file, but we will override the `JWT_SECRET` directly on the command line for better security.
 
     ```bash
     JWT_SECRET="your-long-random-super-secret-string-for-production" pm2 start server.js -i max --name "dramaverse-backend"
     ```
-    -   `JWT_SECRET=...`: **Crucially, replace this with your own long, random secret.**
-    -   `-i max`: Enables cluster mode.
+    -   `JWT_SECRET=...`: **Crucially, replace this with your own long, random secret.** Setting it here overrides any value in `.env`.
+    -   `-i max`: Enables cluster mode to use all available CPU cores.
     -   `--name "..."`: Gives the process a memorable name in PM2.
 
 3.  **Useful PM2 Commands**:
