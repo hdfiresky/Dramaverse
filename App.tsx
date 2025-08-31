@@ -32,6 +32,7 @@ export default function App() {
     // The App component composes various custom hooks to manage different aspects of the application state.
 
     // `useUIState`: Manages the state of the UI itself, like active views and open modals.
+    // NOTE: This is called first because useDramas depends on currentPage from it.
     const {
         activeView, navigateTo,
         modalStack, pushModal, popModal, closeAllModals,
@@ -61,7 +62,15 @@ export default function App() {
     const debouncedSearchTerm = useDebounce(searchTerm, 300); // Debounce search input for 300ms.
 
     // `useDramas`: Fetches and processes all drama data, including filtering and sorting.
-    const { allDramas, filteredAndSortedDramas, metadata, isLoading, dataError } = useDramas(filters, debouncedSearchTerm, sortPriorities);
+    // It now accepts `currentPage` to handle server-side pagination.
+    const { 
+        displayDramas, 
+        totalDramas, 
+        allDramas, 
+        metadata, 
+        isLoading, 
+        dataError 
+    } = useDramas(filters, debouncedSearchTerm, sortPriorities, currentPage);
 
     // Effect to reset pagination to the first page whenever the data set changes due to new filters, search, or sorting.
     useEffect(() => {
@@ -158,18 +167,15 @@ export default function App() {
     // --- RENDER LOGIC ---
     const activeModal = modalStack.length > 0 ? modalStack[modalStack.length - 1] : null;
 
-    // Paginate the final list of dramas to be displayed.
-    const paginatedDramas = filteredAndSortedDramas.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE);
-
     const renderActiveView = () => {
         switch (activeView) {
             case 'home':
                 return (
                     <HomePage
-                        dramas={paginatedDramas}
+                        dramas={displayDramas}
                         isLoading={isLoading}
                         dataError={dataError}
-                        totalDramas={filteredAndSortedDramas.length}
+                        totalDramas={totalDramas}
                         userData={userData}
                         filters={filters}
                         searchTerm={searchTerm}
