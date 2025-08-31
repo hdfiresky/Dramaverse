@@ -18,6 +18,7 @@ This document provides a comprehensive guide to setting up and running the optio
 -   **Functionality**:
     -   Handles user registration and login.
     -   Provides authenticated endpoints for users to manage their data.
+    -   **Automatic Migrations**: The database schema is automatically created and updated on server startup.
     -   **Real-Time Sync**: When a user makes a change on one device, the server instantly pushes the update to all of that user's other logged-in devices.
     -   Includes logic for **conflict resolution** to support multi-device, offline-first usage.
 
@@ -49,11 +50,11 @@ This document provides a comprehensive guide to setting up and running the optio
     "scripts": {
       "start": "node server.js",
       "dev": "nodemon server.js",
-      "setup-db": "node server.js --setup-db"
+      "seed": "node server.js --seed"
     },
     ```
 
-6.  **Copy Drama Data**: Copy the `dramas.json` file from `/public/data/dramas.json` into your new `/backend` directory. The setup script will use this file.
+6.  **Copy Drama Data**: Copy the `dramas.json` file from `/public/data/dramas.json` into your new `/backend` directory. The seed script will use this file.
 
 ## 3. Project Structure
 
@@ -91,6 +92,16 @@ const PORT = 3001;
 const DB_SOURCE = "dramas.db";
 const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-key-change-me';
 
+// --- DATABASE MIGRATIONS ---
+// New migrations can be added to this array. They will be run in order.
+const migrations = [
+    `CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE, password TEXT)`,
+    `CREATE TABLE IF NOT EXISTS dramas (url TEXT PRIMARY KEY, title TEXT, data TEXT)`,
+    `CREATE TABLE IF NOT EXISTS user_favorites (user_id INTEGER, drama_url TEXT, PRIMARY KEY (user_id, drama_url), FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE, FOREIGN KEY (drama_url) REFERENCES dramas(url) ON DELETE CASCADE)`,
+    `CREATE TABLE IF NOT EXISTS user_statuses (user_id INTEGER, drama_url TEXT, status TEXT, currentEpisode INTEGER, PRIMARY KEY (user_id, drama_url), FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE, FOREIGN KEY (drama_url) REFERENCES dramas(url) ON DELETE CASCADE)`,
+    `CREATE TABLE IF NOT EXISTS user_episode_reviews (user_id INTEGER, drama_url TEXT, episode_number INTEGER, review_text TEXT, updated_at INTEGER, PRIMARY KEY (user_id, drama_url, episode_number), FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE, FOREIGN KEY (drama_url) REFERENCES dramas(url) ON DELETE CASCADE)`
+];
+
 // --- DATABASE SETUP ---
 const db = new sqlite3.Database(DB_SOURCE, (err) => {
     if (err) {
@@ -100,19 +111,37 @@ const db = new sqlite3.Database(DB_SOURCE, (err) => {
     console.log('Connected to the SQLite database.');
 });
 
-function createTables() {
+// Function to run migrations
+async function runMigrations() {
     return new Promise((resolve, reject) => {
         db.serialize(() => {
-            console.log("Creating tables...");
-            db.run(`PRAGMA foreign_keys = ON;`);
-            db.run(`CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE, password TEXT)`);
-            db.run(`CREATE TABLE IF NOT EXISTS dramas (url TEXT PRIMARY KEY, title TEXT, data TEXT)`);
-            db.run(`CREATE TABLE IF NOT EXISTS user_favorites (user_id INTEGER, drama_url TEXT, PRIMARY KEY (user_id, drama_url), FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE, FOREIGN KEY (drama_url) REFERENCES dramas(url) ON DELETE CASCADE)`);
-            db.run(`CREATE TABLE IF NOT EXISTS user_statuses (user_id INTEGER, drama_url TEXT, status TEXT, currentEpisode INTEGER, PRIMARY KEY (user_id, drama_url), FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE, FOREIGN KEY (drama_url) REFERENCES dramas(url) ON DELETE CASCADE)`);
-            db.run(`CREATE TABLE IF NOT EXISTS user_episode_reviews (user_id INTEGER, drama_url TEXT, episode_number INTEGER, review_text TEXT, updated_at INTEGER, PRIMARY KEY (user_id, drama_url, episode_number), FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE, FOREIGN KEY (drama_url) REFERENCES dramas(url) ON DELETE CASCADE)`,
-            (err) => {
+            db.run(`CREATE TABLE IF NOT EXISTS migrations (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE)`);
+            
+            db.all('SELECT name FROM migrations', async (err, completedMigrations) => {
                 if (err) return reject(err);
-                console.log("Tables created successfully.");
+
+                const completedNames = new Set(completedMigrations.map(m => m.name));
+                const pendingMigrations = migrations.filter((_, index) => !completedNames.has(`migration_${index}`));
+
+                if (pendingMigrations.length === 0) {
+                    console.log("Database schema is up to date.");
+                    return resolve();
+                }
+
+                console.log(`Found ${pendingMigrations.length} pending migrations. Applying...`);
+                for (let i = 0; i < migrations.length; i++) {
+                    if (!completedNames.has(`migration_${i}`)) {
+                        try {
+                            await new Promise((res, rej) => db.run(migrations[i], (e) => e ? rej(e) : res()));
+                            await new Promise((res, rej) => db.run('INSERT INTO migrations (name) VALUES (?)', [`migration_${i}`], (e) => e ? rej(e) : res()));
+                            console.log(`Applied migration_${i}`);
+                        } catch (migrationErr) {
+                            console.error(`Failed to apply migration_${i}:`, migrationErr);
+                            return reject(migrationErr);
+                        }
+                    }
+                }
+                console.log("All pending migrations applied successfully.");
                 resolve();
             });
         });
@@ -121,6 +150,9 @@ function createTables() {
 
 function seedDatabase() {
     return new Promise((resolve, reject) => {
+        if (!fs.existsSync('dramas.json')) {
+            return reject(new Error('dramas.json not found in the backend directory. Please copy it from /public/data.'));
+        }
         const dramas = JSON.parse(fs.readFileSync('dramas.json'));
         db.serialize(() => {
             const stmt = db.prepare("INSERT OR REPLACE INTO dramas (url, title, data) VALUES (?, ?, ?)");
@@ -132,28 +164,17 @@ function seedDatabase() {
             });
             stmt.finalize((err) => {
                 if (err) return reject(err);
-                console.log(`Successfully seeded ${count} dramas into the database.`);
+                console.log(`Successfully seeded/updated ${count} dramas into the database.`);
                 resolve();
             });
         });
     });
 }
 
-async function setupDatabase() {
-    try {
-        await createTables();
-        await seedDatabase();
-        db.close();
-        console.log("Database setup complete.");
-    } catch (err) {
-        console.error("Database setup failed:", err);
-    }
-}
-
-// Check for command line flags to run setup
-if (process.argv.includes('--setup-db')) {
-    setupDatabase();
-    return; // Exit the script after setup
+// Check for command line flag to run seed
+if (process.argv.includes('--seed')) {
+    seedDatabase().then(() => db.close()).catch(err => console.error("Seeding failed:", err));
+    return; // Exit the script after seeding
 }
 
 // --- EXPRESS & SOCKET.IO SERVER SETUP ---
@@ -161,58 +182,33 @@ const app = express();
 const server = http.createServer(app);
 
 // --- SECURITY MIDDLEWARE ---
-// 1. Set various security-related HTTP headers
 app.use(helmet());
-
-// 2. CORS Configuration
-const allowedOrigins = ['http://localhost:5173', 'http://127.0.0.1:5173']; // Add your production domain here
+const allowedOrigins = ['http://localhost:5173', 'http://127.0.0.1:5173'];
 const corsOptions = {
     origin: (origin, callback) => {
-        if (!origin || allowedOrigins.includes(origin)) {
-            callback(null, true);
-        } else {
-            callback(new Error('Not allowed by CORS'));
-        }
+        if (!origin || allowedOrigins.includes(origin)) callback(null, true);
+        else callback(new Error('Not allowed by CORS'));
     },
     methods: ['GET', 'POST', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
 };
 app.use(cors(corsOptions));
-app.options('*', cors(corsOptions)); // Handle pre-flight requests
+app.options('*', cors(corsOptions));
+const apiLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 200, standardHeaders: true, legacyHeaders: false, message: 'Too many requests, please try again after 15 minutes.' });
+const authLimiter = rateLimit({ windowMs: 30 * 60 * 1000, max: 10, message: 'Too many authentication attempts, please try again after 30 minutes.' });
 
-// 3. Rate Limiting to prevent brute-force and DoS attacks
-const apiLimiter = rateLimit({
-	windowMs: 15 * 60 * 1000, // 15 minutes
-	max: 200, // Limit each IP to 200 requests per window
-	standardHeaders: true,
-	legacyHeaders: false,
-    message: 'Too many requests from this IP, please try again after 15 minutes.',
-});
-const authLimiter = rateLimit({
-    windowMs: 30 * 60 * 1000, // 30 minutes
-    max: 10, // Limit each IP to 10 authentication attempts per window
-    message: 'Too many authentication attempts from this IP, please try again after 30 minutes.',
-});
-
-// Apply the general limiter to all API requests (except auth)
 app.use('/api/user', apiLimiter);
-
-// Parse JSON bodies
 app.use(express.json());
 
 const io = new Server(server, { cors: corsOptions });
 
-
 // --- AUTHENTICATION MIDDLEWARE ---
 const authMiddleware = (req, res, next) => {
     const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-        return res.status(401).json({ message: 'Authentication token required' });
-    }
+    if (!authHeader || !authHeader.startsWith('Bearer ')) return res.status(401).json({ message: 'Authentication token required' });
     const token = authHeader.split(' ')[1];
     try {
-        const decoded = jwt.verify(token, JWT_SECRET);
-        req.user = decoded;
+        req.user = jwt.verify(token, JWT_SECRET);
         next();
     } catch (err) {
         return res.status(401).json({ message: 'Invalid or expired token' });
@@ -274,7 +270,6 @@ async function emitUserDataUpdate(userId) {
 // --- API ENDPOINTS ---
 app.post('/api/auth/register', authLimiter, (req, res) => {
     const { username, password } = req.body;
-    // Input Validation
     if (typeof username !== 'string' || typeof password !== 'string' || username.length < 3 || password.length < 6) {
         return res.status(400).json({ message: "Invalid input: Username must be at least 3 characters and password at least 6 characters." });
     }
@@ -289,7 +284,6 @@ app.post('/api/auth/register', authLimiter, (req, res) => {
 
 app.post('/api/auth/login', authLimiter, (req, res) => {
     const { username, password } = req.body;
-    // Input Validation
     if (typeof username !== 'string' || typeof password !== 'string' || !username || !password) {
         return res.status(400).json({ message: "Username and password are required." });
     }
@@ -313,25 +307,19 @@ app.get('/api/user/data', authMiddleware, async (req, res) => {
 
 app.post('/api/user/favorites', authMiddleware, (req, res) => {
     const { dramaUrl, isFavorite } = req.body;
-    // Input Validation
-    if (typeof dramaUrl !== 'string' || typeof isFavorite !== 'boolean') {
-        return res.status(400).json({ message: 'Invalid payload.' });
-    }
+    if (typeof dramaUrl !== 'string' || typeof isFavorite !== 'boolean') return res.status(400).json({ message: 'Invalid payload.' });
     const sql = isFavorite 
         ? 'INSERT OR IGNORE INTO user_favorites (user_id, drama_url) VALUES (?, ?)'
         : 'DELETE FROM user_favorites WHERE user_id = ? AND drama_url = ?';
     db.run(sql, [req.user.id, dramaUrl], function(err) {
         if (err) return res.status(500).json({ message: 'Database error' });
-        if (this.changes > 0) { // Only emit if there was a change
-            emitUserDataUpdate(req.user.id);
-        }
+        if (this.changes > 0) emitUserDataUpdate(req.user.id);
         res.status(200).json({ success: true });
     });
 });
 
 app.post('/api/user/statuses', authMiddleware, (req, res) => {
     const { dramaUrl, status, currentEpisode } = req.body;
-    // Input Validation
     if (typeof dramaUrl !== 'string' || typeof status !== 'string' || (currentEpisode !== undefined && typeof currentEpisode !== 'number')) {
          return res.status(400).json({ message: 'Invalid payload.' });
     }
@@ -352,7 +340,6 @@ app.post('/api/user/statuses', authMiddleware, (req, res) => {
 
 app.post('/api/user/reviews/episodes', authMiddleware, (req, res) => {
     const { dramaUrl, episodeNumber, text, clientUpdatedAt, force } = req.body;
-    // Input Validation
     if (typeof dramaUrl !== 'string' || typeof episodeNumber !== 'number' || typeof text !== 'string' || typeof clientUpdatedAt !== 'number' || (force !== undefined && typeof force !== 'boolean')) {
         return res.status(400).json({ message: 'Invalid payload.' });
     }
@@ -379,20 +366,27 @@ app.post('/api/user/reviews/episodes', authMiddleware, (req, res) => {
 });
 
 // --- SERVER START & GRACEFUL SHUTDOWN ---
-server.listen(PORT, () => {
-    console.log(`Server with real-time support is running on http://localhost:${PORT}`);
-});
+async function startServer() {
+    try {
+        await runMigrations();
+        server.listen(PORT, () => {
+            console.log(`Server with real-time support is running on http://localhost:${PORT}`);
+        });
+    } catch (err) {
+        console.error("Failed to start server due to migration error:", err);
+        process.exit(1);
+    }
+}
+
+startServer();
 
 process.on('SIGINT', () => {
     console.log('SIGINT signal received: closing HTTP server and database.');
     server.close(() => {
         console.log('HTTP server closed.');
         db.close((err) => {
-            if (err) {
-                console.error('Error closing the database:', err.message);
-            } else {
-                console.log('Database connection closed.');
-            }
+            if (err) console.error('Error closing the database:', err.message);
+            else console.log('Database connection closed.');
             process.exit(0);
         });
     });
@@ -401,23 +395,23 @@ process.on('SIGINT', () => {
 
 ## 5. Running the Backend
 
-Follow these steps in your terminal, from inside the `/backend` directory:
+The workflow is now simpler. The database schema is handled automatically.
 
-1.  **Set up the Database (One-Time Command)**: This command executes the `setupDatabase` function in `server.js` and then exits.
-    ```bash
-    npm run setup-db
-    ```
-    This will create a `dramas.db` file and populate it with all the drama data. You only need to run this once, or again if you update `dramas.json`.
-
-2.  **Start the Server for Development**:
+1.  **Start the Server for Development**:
     ```bash
     npm run dev
     ```
-    Your backend server is now running on `http://localhost:3001` with `nodemon`, which will automatically restart on file changes.
+    The first time you run this, the server will automatically create the `dramas.db` file and run all necessary schema migrations before starting.
+
+2.  **Seed the Database with Data (One-Time Command)**:
+    This command now only populates the tables with data from `dramas.json`. You only need to run this once after the initial setup, or again if you update `dramas.json`.
+    ```bash
+    npm run seed
+    ```
 
 ## 6. Production Deployment with PM2
 
-For a production environment, use a process manager like [PM2](https://pm2.keymetrics.io/) to keep your application alive, enable clustering, and manage logs.
+The PM2 deployment process remains the same and is highly recommended for production.
 
 1.  **Install PM2 Globally**:
     ```bash
@@ -425,7 +419,7 @@ For a production environment, use a process manager like [PM2](https://pm2.keyme
     ```
 
 2.  **Start the Production Server**:
-    From your `/backend` directory, run the following command. This starts the app in "cluster" mode to use all available CPU cores and sets a secure JWT secret as an environment variable.
+    From your `/backend` directory, run the following command. This starts the app in "cluster" mode, sets a secure JWT secret, and the server will automatically handle migrations on startup.
 
     ```bash
     JWT_SECRET="your-long-random-super-secret-string-for-production" pm2 start server.js -i max --name "dramaverse-backend"
@@ -447,5 +441,4 @@ For a production environment, use a process manager like [PM2](https://pm2.keyme
 The security best practices and Nginx reverse proxy configurations from the previous guide are still highly recommended and can be used without any changes. Remember to:
 -   Update the `allowedOrigins` array in `server.js` for your production domain.
 -   Use a strong, secret `JWT_SECRET` set via an environment variable.
--   Consider implementing rate limiting for sensitive endpoints.
 -   Run your Node.js application behind a reverse proxy like Nginx in production.
