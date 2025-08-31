@@ -19,6 +19,8 @@ interface MyListPageProps {
     onToggleFavorite: (url: string) => void;
     /** Callback to set the user's status for a drama. */
     onSetStatus: (url: string, statusInfo: Omit<UserDramaStatus, 'updatedAt'>) => void;
+    /** Callback to save a review and automatically track user progress. */
+    onSetReviewAndTrackProgress: (drama: Drama, episodeNumber: number, text: string) => void;
 }
 
 // Configuration object to map each status to its corresponding icon and label.
@@ -67,7 +69,7 @@ const getInitialFilter = (userData: UserData): DramaStatus | 'Favorites' => {
  * @param {MyListPageProps} props - The props for the MyListPage component.
  * @returns {React.ReactElement} The rendered My List page.
  */
-export const MyListPage: React.FC<MyListPageProps> = ({ allDramas, userData, onSelectDrama, onToggleFavorite, onSetStatus }) => {
+export const MyListPage: React.FC<MyListPageProps> = ({ allDramas, userData, onSelectDrama, onToggleFavorite, onSetStatus, onSetReviewAndTrackProgress }) => {
     // State to keep track of the currently active filter, initialized with the most recently updated list.
     const [activeFilter, setActiveFilter] = useState<DramaStatus | 'Favorites'>(() => getInitialFilter(userData));
     
@@ -189,7 +191,15 @@ export const MyListPage: React.FC<MyListPageProps> = ({ allDramas, userData, onS
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-6">
                 {activeList.length > 0 ? (
                     activeList.map(drama => (
-                         <DramaCard key={drama.url} drama={drama} onSelect={onSelectDrama} userData={userData} onToggleFavorite={onToggleFavorite} onSetStatus={onSetStatus}/>
+                         <DramaCard 
+                            key={drama.url} 
+                            drama={drama} 
+                            onSelect={onSelectDrama} 
+                            userData={userData} 
+                            onToggleFavorite={onToggleFavorite} 
+                            onSetStatus={onSetStatus}
+                            onSetReviewAndTrackProgress={onSetReviewAndTrackProgress}
+                         />
                     ))
                 ) : (
                     // Display a message if the current list is empty.

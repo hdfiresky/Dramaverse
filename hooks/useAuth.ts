@@ -7,7 +7,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { useLocalStorage } from './useLocalStorage';
-import { User, UserData, UserDramaStatus, DramaStatus, ConflictData, EpisodeReview } from '../types';
+import { User, UserData, UserDramaStatus, DramaStatus, ConflictData, EpisodeReview, Drama } from '../types';
 import { LOCAL_STORAGE_KEYS } from './lib/constants';
 import { BASE_PATH, BACKEND_MODE, API_BASE_URL, WEBSOCKET_URL, ENABLE_DEBUG_LOGGING } from '../config';
 
@@ -399,63 +399,71 @@ export const useAuth = (onLoginSuccess?: () => void, openConflictModal?: (data: 
         );
     }, [authenticatedUpdate, userData.statuses]);
 
-    const setEpisodeReview = useCallback((dramaUrl: string, episodeNumber: number, text: string) => {
-        const clientUpdatedAt = userData.episodeReviews?.[dramaUrl]?.[episodeNumber]?.updatedAt || 0;
+    const setReviewAndTrackProgress = useCallback((drama: Drama, episodeNumber: number, text: string) => {
+        const { url: dramaUrl, episodes: totalEpisodes } = drama;
         
+        // This is a composite action. It updates reviews AND statuses.
+        // We'll give it a unique endpoint conceptually, but handle it with a single optimistic update.
         return authenticatedUpdate(
-            '/user/reviews/episodes',
-            { dramaUrl, episodeNumber, text, clientUpdatedAt },
+            '/user/reviews/track_progress', // A new conceptual endpoint for clarity
+            { dramaUrl, episodeNumber, text, totalEpisodes },
             (currentData) => {
-                const newEpisodeReviews = JSON.parse(JSON.stringify(currentData.episodeReviews));
-                if (!newEpisodeReviews[dramaUrl]) newEpisodeReviews[dramaUrl] = {};
+                const newUserData = JSON.parse(JSON.stringify(currentData)); // deep clone
+                const { episodeReviews, statuses, listUpdateTimestamps } = newUserData;
+                const now = Date.now();
+    
+                // 1. Update review
+                if (!episodeReviews[dramaUrl]) episodeReviews[dramaUrl] = {};
                 if (text.trim() === '') {
-                    delete newEpisodeReviews[dramaUrl][episodeNumber];
-                    if (Object.keys(newEpisodeReviews[dramaUrl]).length === 0) {
-                        delete newEpisodeReviews[dramaUrl];
+                    delete episodeReviews[dramaUrl][episodeNumber];
+                    if (Object.keys(episodeReviews[dramaUrl]).length === 0) {
+                        delete episodeReviews[dramaUrl];
                     }
                 } else {
-                    newEpisodeReviews[dramaUrl][episodeNumber] = { text, updatedAt: Date.now() };
+                    episodeReviews[dramaUrl][episodeNumber] = { text, updatedAt: now };
                 }
-                return { ...currentData, episodeReviews: newEpisodeReviews };
+    
+                // 2. Update status and progress (only if adding/editing a review)
+                if (text.trim() !== '') {
+                    const oldStatusInfo = statuses[dramaUrl];
+                    const oldStatus = oldStatusInfo?.status;
+                    
+                    let newStatusInfo: UserDramaStatus = oldStatusInfo 
+                        ? { ...oldStatusInfo } 
+                        : { status: DramaStatus.PlanToWatch, currentEpisode: 0, updatedAt: 0 };
+    
+                    // Auto-set to 'Watching' if it was 'Plan to Watch' or unset
+                    if (!newStatusInfo.status || newStatusInfo.status === DramaStatus.PlanToWatch) {
+                        newStatusInfo.status = DramaStatus.Watching;
+                    }
+                    
+                    // Update progress to the latest reviewed episode
+                    newStatusInfo.currentEpisode = Math.max(newStatusInfo.currentEpisode || 0, episodeNumber);
+    
+                    // Auto-set to 'Completed' if they reviewed the last episode
+                    if (episodeNumber === totalEpisodes) {
+                        newStatusInfo.status = DramaStatus.Completed;
+                        newStatusInfo.currentEpisode = totalEpisodes;
+                    }
+    
+                    // If status or episode number has changed, update the status object and timestamps
+                    if (!oldStatusInfo || newStatusInfo.status !== oldStatus || newStatusInfo.currentEpisode !== oldStatusInfo.currentEpisode) {
+                        newStatusInfo.updatedAt = now;
+                        statuses[dramaUrl] = newStatusInfo;
+                        
+                        // Update timestamp for the list the drama is NOW in
+                        listUpdateTimestamps[newStatusInfo.status] = now;
+                        // Also update timestamp for the list it was IN, to re-sort that list too
+                        if (oldStatus && oldStatus !== newStatusInfo.status) {
+                            listUpdateTimestamps[oldStatus] = now;
+                        }
+                    }
+                }
+                
+                return newUserData;
             }
         );
-    }, [authenticatedUpdate, userData.episodeReviews]);
-
-    const resolveReviewConflict = useCallback(async (
-        clientPayload: { dramaUrl: string, episodeNumber: number, text: string },
-        serverVersion: { text: string, updatedAt: number },
-        resolution: 'client' | 'server'
-    ) => {
-        if (!currentUser) return;
-    
-        if (resolution === 'server') {
-            setUserData(currentData => {
-                const newEpisodeReviews = JSON.parse(JSON.stringify(currentData.episodeReviews));
-                if (!newEpisodeReviews[clientPayload.dramaUrl]) newEpisodeReviews[clientPayload.dramaUrl] = {};
-                newEpisodeReviews[clientPayload.dramaUrl][clientPayload.episodeNumber] = serverVersion;
-                
-                if (!BACKEND_MODE) {
-                    localStorage.setItem(`${LOCAL_STORAGE_KEYS.USER_DATA_PREFIX}${currentUser.username}`, JSON.stringify({ ...currentData, episodeReviews: newEpisodeReviews }));
-                }
-                return { ...currentData, episodeReviews: newEpisodeReviews };
-            });
-        } else { // resolution === 'client'
-            if (BACKEND_MODE) {
-                try {
-                    await fetch(`${API_BASE_URL}/user/reviews/episodes`, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                        },
-                        credentials: 'include',
-                        body: JSON.stringify({ ...clientPayload, force: true })
-                    });
-                } catch (error) {
-                    console.error("Forced update failed, will be retried by background sync:", error);
-                }
-            }
-        }
-    }, [currentUser]);
+    }, [authenticatedUpdate]);
     
 
     return {
@@ -467,7 +475,6 @@ export const useAuth = (onLoginSuccess?: () => void, openConflictModal?: (data: 
         logout,
         toggleFavorite,
         setDramaStatus,
-        setEpisodeReview,
-        resolveReviewConflict,
+        setReviewAndTrackProgress,
     };
 };

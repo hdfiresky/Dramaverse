@@ -5,9 +5,9 @@
  */
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import ReactDOM from 'react-dom';
-import { Drama, UserData, User, UserDramaStatus, DramaStatus, Filters, Recommendation, CastMember } from '../types';
+import { Drama, Filters, Recommendation, CastMember } from '../types';
 import {
-    CloseIcon, HeartIcon, StarIcon, EyeIcon, BookmarkIcon, CheckCircleIcon, PauseIcon, XCircleIcon, ChevronLeftIcon
+    CloseIcon, StarIcon, ChevronLeftIcon
 } from './Icons';
 
 interface DramaDetailModalProps {
@@ -25,18 +25,8 @@ interface DramaDetailModalProps {
     onSetQuickFilter: (type: 'genre' | 'tag', value: string) => void;
     /** Callback to open the modal for a specific actor. */
     onSelectActor: (actorName: string) => void;
-    /** The current user's data. */
-    userData: UserData;
-    /** Callback to set the user's status for this drama. */
-    onSetStatus: (url: string, status: Omit<UserDramaStatus, 'updatedAt'>) => void;
-    /** Callback to toggle the favorite status for this drama. */
-    onToggleFavorite: (url: string) => void;
-    /** The currently logged-in user, or null. */
-    currentUser: User | null;
     /** The current filter state, used to provide visual feedback on tags/genres. */
     filters: Filters;
-    /** Callback to open the modal for episode reviews */
-    onOpenEpisodeReviews: (drama: Drama) => void;
     /** If true, shows a "Back" button in the header. */
     showBackButton: boolean;
 }
@@ -73,20 +63,6 @@ const CRITERIA_OPTIONS: { id: 'genres' | 'tags' | 'description' | 'cast' | 'rati
     { id: 'cast', label: 'Cast' },
     { id: 'rating', label: 'Rating' },
     { id: 'rating_count', label: 'Rating Count' },
-];
-
-const actionButtonsConfig: {
-    type: 'status' | 'favorite';
-    status?: DramaStatus;
-    icon: React.FC<any>;
-    label: string;
-}[] = [
-    { type: 'status', status: DramaStatus.Watching, icon: EyeIcon, label: 'Watching' },
-    { type: 'status', status: DramaStatus.PlanToWatch, icon: BookmarkIcon, label: 'Plan to Watch' },
-    { type: 'status', status: DramaStatus.Completed, icon: CheckCircleIcon, label: 'Completed' },
-    { type: 'status', status: DramaStatus.OnHold, icon: PauseIcon, label: 'On-Hold' },
-    { type: 'status', status: DramaStatus.Dropped, icon: XCircleIcon, label: 'Dropped' },
-    { type: 'favorite', icon: HeartIcon, label: 'Favorite' },
 ];
 
 /**
@@ -130,10 +106,7 @@ const RecommendationCard: React.FC<{
  * @param {DramaDetailModalProps} props - The props for the DramaDetailModal component.
  * @returns {React.ReactElement} The rendered detail modal.
  */
-export const DramaDetailModal: React.FC<DramaDetailModalProps> = ({ drama, allDramas, onCloseAll, onPopModal, onSelectDrama, onSetQuickFilter, onSelectActor, userData, onSetStatus, onToggleFavorite, currentUser, filters, onOpenEpisodeReviews, showBackButton }) => {
-    const isFavorite = drama ? userData.favorites.includes(drama.url) : false;
-    const currentStatus = drama ? userData.statuses[drama.url] : undefined;
-    
+export const DramaDetailModal: React.FC<DramaDetailModalProps> = ({ drama, allDramas, onCloseAll, onPopModal, onSelectDrama, onSetQuickFilter, onSelectActor, filters, showBackButton }) => {
     const [activeTab, setActiveTab] = useState<'curated' | 'similarity'>('curated');
     const [selectedCriteria, setSelectedCriteria] = useState<string[]>(['genres', 'tags', 'rating']); // Sensible default selection
     const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -239,13 +212,6 @@ export const DramaDetailModal: React.FC<DramaDetailModalProps> = ({ drama, allDr
         return scoredDramas;
     }, [drama, allDramas, selectedCriteria]);
 
-    const handleProgressChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-        if (!drama || !currentStatus) return;
-        const newEpisode = parseInt(e.target.value, 10);
-        const newStatus = newEpisode === drama.episodes ? DramaStatus.Completed : currentStatus.status;
-        onSetStatus(drama.url, { status: newStatus, currentEpisode: newEpisode });
-    }, [drama, currentStatus, onSetStatus]);
-
     // Memoize rendered UI elements like tag lists to prevent re-mapping on every render.
     const genrePills = useMemo(() => drama ? drama.genres.map(g => (
         <button key={g} onClick={() => onSetQuickFilter('genre', g)} 
@@ -268,8 +234,6 @@ export const DramaDetailModal: React.FC<DramaDetailModalProps> = ({ drama, allDr
             <p className="text-xs text-brand-text-secondary truncate">{member.character_name}</p>
         </div>
     )) : [], [drama, onSelectActor]);
-
-    const showProgressTracker = currentStatus && [DramaStatus.Watching, DramaStatus.OnHold, DramaStatus.Completed].includes(currentStatus.status);
 
 
     return ReactDOM.createPortal(
@@ -315,74 +279,6 @@ export const DramaDetailModal: React.FC<DramaDetailModalProps> = ({ drama, allDr
                                 </div>
                                 <p className="text-brand-text-secondary leading-relaxed mb-6">{drama.description}</p>
                                 
-                                {currentUser && (
-                                     <div className="bg-brand-primary p-4 rounded-lg mb-6">
-                                        <h4 className="font-semibold text-brand-text-primary mb-4 text-lg">My Actions</h4>
-                                        <div className="grid grid-cols-3 gap-3">
-                                            {actionButtonsConfig.map(({ type, status, icon: Icon, label }) => {
-                                                const isActive = type === 'status' ? currentStatus?.status === status : isFavorite;
-                                                
-                                                const activeClasses = type === 'favorite' 
-                                                    ? 'bg-red-500 text-white shadow-lg'
-                                                    : 'bg-brand-accent text-white shadow-lg';
-                                                
-                                                const inactiveClasses = 'bg-brand-secondary text-brand-text-secondary hover:bg-slate-200 dark:hover:bg-slate-700';
-                                                
-                                                const action = () => {
-                                                    if (type === 'status' && status) {
-                                                        const newStatus = isActive ? { status: '' as DramaStatus } : { status, currentEpisode: currentStatus?.currentEpisode || 0 };
-                                                        onSetStatus(drama.url, newStatus as any);
-                                                    } else if (type === 'favorite') {
-                                                        onToggleFavorite(drama.url);
-                                                    }
-                                                };
-                                                
-                                                const title = type === 'status'
-                                                    ? (isActive ? `Remove from '${label}'` : `Set as '${label}'`)
-                                                    : (isActive ? 'Remove from Favorites' : 'Add to Favorites');
-
-                                                return (
-                                                    <button
-                                                        key={label}
-                                                        onClick={action}
-                                                        title={title}
-                                                        className={`p-3 rounded-lg transition-all duration-200 flex flex-col items-center justify-center gap-2 h-28 transform hover:-translate-y-0.5
-                                                            ${isActive
-                                                                ? activeClasses
-                                                                : inactiveClasses
-                                                            }`
-                                                        }
-                                                    >
-                                                        <Icon className="w-7 h-7" />
-                                                        <span className="text-xs font-semibold leading-tight text-center">{label}</span>
-                                                    </button>
-                                                );
-                                            })}
-                                        </div>
-                                        {showProgressTracker && (
-                                            <div className="mt-6">
-                                                <div className="flex justify-between items-center mb-1">
-                                                    <label htmlFor="episode-progress" className="text-sm font-medium text-brand-text-secondary">Progress</label>
-                                                    <span className="text-sm font-bold text-brand-text-primary">{currentStatus.currentEpisode || 0} / {drama.episodes}</span>
-                                                </div>
-                                                <input
-                                                    id="episode-progress"
-                                                    type="range"
-                                                    min="0"
-                                                    max={drama.episodes}
-                                                    value={currentStatus.currentEpisode || 0}
-                                                    onChange={handleProgressChange}
-                                                    className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-brand-accent"
-                                                />
-                                            </div>
-                                        )}
-                                        {currentStatus?.status && currentStatus.status !== DramaStatus.PlanToWatch && (
-                                            <button onClick={() => onOpenEpisodeReviews(drama)} className="mt-4 w-full text-center py-2 px-4 rounded-md bg-brand-accent/30 text-brand-accent font-semibold hover:bg-brand-accent/50 transition-colors">
-                                                Review Episodes
-                                            </button>
-                                        )}
-                                    </div>
-                                )}
                             </div>
                         </section>
                         

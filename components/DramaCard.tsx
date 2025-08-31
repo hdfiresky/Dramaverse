@@ -2,9 +2,9 @@
  * @fileoverview Defines the DramaCard component, a key visual element for displaying
  * a summary of a drama in the main grid view.
  */
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Drama, UserData, DramaStatus, UserDramaStatus } from '../types';
-import { StarIcon, HeartIcon, BookmarkIcon, EyeIcon, CheckCircleIcon, PauseIcon, XCircleIcon } from './Icons';
+import { StarIcon, HeartIcon, BookmarkIcon, EyeIcon, CheckCircleIcon, PauseIcon, XCircleIcon, ChatBubbleOvalLeftEllipsisIcon, ChevronLeftIcon, ChevronRightIcon } from './Icons';
 
 interface DramaCardProps {
     /** The drama object containing all data to display. */
@@ -17,6 +17,8 @@ interface DramaCardProps {
     onToggleFavorite: (dramaUrl: string) => void;
     /** Callback to set the user's status for a drama. */
     onSetStatus: (url: string, statusInfo: Omit<UserDramaStatus, 'updatedAt'>) => void;
+    /** Callback to save a review and automatically track user progress. */
+    onSetReviewAndTrackProgress: (drama: Drama, episodeNumber: number, text: string) => void;
 }
 
 const statusConfig: Record<DramaStatus, { icon: React.FC<any>; label: string }> = {
@@ -37,15 +39,19 @@ const statusOrder = [DramaStatus.Watching, DramaStatus.Completed, DramaStatus.On
  * @param {DramaCardProps} props - The props for the DramaCard component.
  * @returns {React.ReactElement} The rendered drama card.
  */
-export const DramaCard: React.FC<DramaCardProps> = ({ drama, onSelect, userData, onToggleFavorite, onSetStatus }) => {
-    const [popoverOpen, setPopoverOpen] = useState(false);
-    const wrapperRef = useRef<HTMLDivElement>(null);
+export const DramaCard: React.FC<DramaCardProps> = ({ drama, onSelect, userData, onToggleFavorite, onSetStatus, onSetReviewAndTrackProgress }) => {
+    const [statusPopoverOpen, setStatusPopoverOpen] = useState(false);
+    const [reviewPopoverOpen, setReviewPopoverOpen] = useState(false);
+    const [currentReviewEpisode, setCurrentReviewEpisode] = useState(1);
+    const [reviewText, setReviewText] = useState('');
 
-    // Determine the current status of the drama for the logged-in user to apply correct styling.
+    const statusWrapperRef = useRef<HTMLDivElement>(null);
+    const reviewWrapperRef = useRef<HTMLDivElement>(null);
+
     const isFavorite = userData?.favorites.includes(drama.url) ?? false;
-    const currentStatus = userData?.statuses[drama.url]?.status;
+    const currentStatusInfo = userData?.statuses[drama.url];
+    const currentStatus = currentStatusInfo?.status;
 
-    // A helper to safely extract the year from the aired_date string.
     const getYear = (dateStr: string) => {
         const year = new Date(dateStr.split(' - ')[0]).getFullYear();
         return isNaN(year) ? 'TBA' : year;
@@ -53,45 +59,77 @@ export const DramaCard: React.FC<DramaCardProps> = ({ drama, onSelect, userData,
 
     const handleStatusUpdate = (e: React.MouseEvent, newStatus: DramaStatus | null) => {
         e.stopPropagation();
-        const currentEpisode = userData?.statuses[drama.url]?.currentEpisode || 0;
-        onSetStatus(drama.url, { status: newStatus as any, currentEpisode });
-        setPopoverOpen(false);
+        onSetStatus(drama.url, { status: newStatus as any, currentEpisode: currentStatusInfo?.currentEpisode || 0 });
+        setStatusPopoverOpen(false);
     };
+    
+    const handleReviewSave = useCallback(() => {
+        const savedText = userData?.episodeReviews?.[drama.url]?.[currentReviewEpisode]?.text || '';
+        if (reviewText !== savedText) {
+            onSetReviewAndTrackProgress(drama, currentReviewEpisode, reviewText);
+        }
+    }, [userData, drama, currentReviewEpisode, reviewText, onSetReviewAndTrackProgress]);
+    
+    // Effect to determine the next episode for quick review and initialize state
+    useEffect(() => {
+        if (reviewPopoverOpen && userData && drama) {
+            const reviewsForDrama = userData.episodeReviews?.[drama.url] || {};
+            const reviewedEpisodes = Object.keys(reviewsForDrama).map(Number);
+            const lastReviewedEp = reviewedEpisodes.length > 0 ? Math.max(...reviewedEpisodes) : 0;
+            const currentProgress = currentStatusInfo?.currentEpisode || 0;
+            const nextEp = Math.max(lastReviewedEp, currentProgress) + 1;
+            setCurrentReviewEpisode(p => Math.min(nextEp, drama.episodes));
+        }
+    }, [reviewPopoverOpen, userData, drama, currentStatusInfo]);
 
-    // Close popover on click outside
+    // Effect to sync local textarea state with global userData when episode changes
+    useEffect(() => {
+        if (reviewPopoverOpen) {
+            const savedText = userData?.episodeReviews?.[drama.url]?.[currentReviewEpisode]?.text || '';
+            setReviewText(savedText);
+        }
+    }, [reviewPopoverOpen, currentReviewEpisode, userData, drama.url]);
+
+    // Close popovers on click outside
     useEffect(() => {
         function handleClickOutside(event: MouseEvent) {
-            if (wrapperRef.current && !wrapperRef.current.contains(event.target as Node)) {
-                setPopoverOpen(false);
+            if (statusWrapperRef.current && !statusWrapperRef.current.contains(event.target as Node)) {
+                setStatusPopoverOpen(false);
+            }
+            if (reviewWrapperRef.current && !reviewWrapperRef.current.contains(event.target as Node)) {
+                if (reviewPopoverOpen) {
+                    handleReviewSave(); // Save on close
+                }
+                setReviewPopoverOpen(false);
             }
         }
         document.addEventListener("mousedown", handleClickOutside);
         return () => document.removeEventListener("mousedown", handleClickOutside);
-    }, [wrapperRef]);
+    }, [reviewPopoverOpen, handleReviewSave]);
     
     const StatusIcon = currentStatus ? statusConfig[currentStatus].icon : BookmarkIcon;
 
+    const handleCardClick = () => {
+        // Only trigger the main card click action if no popovers are open.
+        if (!statusPopoverOpen && !reviewPopoverOpen) {
+            onSelect(drama);
+        }
+    };
+
     return (
         <div 
-            className="bg-brand-secondary rounded-lg overflow-hidden shadow-lg transform hover:-translate-y-1 transition-all duration-300 group cursor-pointer"
-            onClick={() => onSelect(drama)} // The entire card is clickable to open the detail modal.
+            className={`bg-brand-secondary rounded-lg overflow-hidden shadow-lg transform hover:-translate-y-1 transition-all duration-300 group ${!statusPopoverOpen && !reviewPopoverOpen ? 'cursor-pointer' : ''}`}
+            onClick={handleCardClick}
             role="button"
             aria-label={`View details for ${drama.title}`}
         >
             <div className="relative">
-                {/* Main image */}
                 <img src={drama.cover_image} alt={drama.title} className="w-full h-80 object-cover" />
-
-                {/* Quick action buttons overlay */}
                 <div className="absolute top-2 right-2 flex flex-col gap-2">
-                    {/* These buttons are only rendered if userData is provided (i.e., a user is logged in). */}
                     {userData && (
                         <>
                         <button 
-                            onClick={(e) => { 
-                                e.stopPropagation(); // Prevent the card's onClick from firing, which would open the modal.
-                                onToggleFavorite(drama.url); 
-                            }} 
+                            onClick={(e) => { e.stopPropagation(); onToggleFavorite(drama.url); }} 
                             className={`p-2 rounded-full transition-colors ${isFavorite ? 'bg-red-500 text-white hover:bg-red-600' : 'bg-black/50 text-white hover:bg-red-400'}`} 
                             title={isFavorite ? 'Remove from Favorites' : 'Add to Favorites'}
                             aria-label={isFavorite ? 'Remove from Favorites' : 'Add to Favorites'}
@@ -99,57 +137,74 @@ export const DramaCard: React.FC<DramaCardProps> = ({ drama, onSelect, userData,
                             <HeartIcon className="w-5 h-5" />
                         </button>
                         
-                        <div className="relative" ref={wrapperRef}>
+                        <div className="relative" ref={statusWrapperRef}>
                             <button
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    setPopoverOpen(prev => !prev);
-                                }}
+                                onClick={(e) => { e.stopPropagation(); setStatusPopoverOpen(p => !p); }}
                                 className={`p-2 rounded-full transition-colors ${currentStatus ? 'bg-brand-accent text-white hover:bg-brand-accent-hover' : 'bg-black/50 text-white hover:bg-sky-300'}`}
-                                title="Set Status"
-                                aria-label="Set drama status"
-                                aria-haspopup="true"
-                                aria-expanded={popoverOpen}
+                                title="Set Status" aria-haspopup="true" aria-expanded={statusPopoverOpen}
                             >
                                 <StatusIcon className="w-5 h-5" />
                             </button>
-
-                            {popoverOpen && (
-                                <div
-                                    onClick={e => e.stopPropagation()}
-                                    className="absolute right-0 top-full mt-2 w-48 bg-brand-secondary rounded-md shadow-lg z-20 py-1 ring-1 ring-black/5 animate-fade-in"
-                                    style={{ animationDuration: '150ms' }}
-                                >
+                            {statusPopoverOpen && (
+                                <div onClick={e => e.stopPropagation()} className="absolute right-0 top-full mt-2 w-48 bg-brand-secondary rounded-md shadow-lg z-20 py-1 ring-1 ring-black/5 animate-fade-in" style={{ animationDuration: '150ms' }}>
                                     {statusOrder.map(status => {
-                                        const { icon: Icon, label } = statusConfig[status];
-                                        const isActive = currentStatus === status;
+                                        const IconComponent = statusConfig[status].icon;
                                         return (
-                                            <button
-                                                key={status}
-                                                onClick={(e) => handleStatusUpdate(e, status)}
-                                                className={`w-full text-left px-3 py-2 text-sm flex items-center gap-3 transition-colors ${isActive ? 'bg-brand-accent text-white' : 'hover:bg-brand-primary'}`}
-                                            >
-                                                <Icon className="w-4 h-4" />
-                                                <span>{label}</span>
+                                            <button key={status} onClick={(e) => handleStatusUpdate(e, status)} className={`w-full text-left px-3 py-2 text-sm flex items-center gap-3 transition-colors ${currentStatus === status ? 'bg-brand-accent text-white' : 'hover:bg-brand-primary'}`}>
+                                                <IconComponent className="w-4 h-4" />
+                                                <span>{statusConfig[status].label}</span>
                                             </button>
                                         );
                                     })}
                                     <div className="my-1 h-px bg-slate-200 dark:bg-slate-700"></div>
-                                    <button
-                                        onClick={(e) => handleStatusUpdate(e, null)}
-                                        className="w-full text-left px-3 py-2 text-sm flex items-center gap-3 hover:bg-brand-primary text-red-500"
-                                    >
+                                    <button onClick={(e) => handleStatusUpdate(e, null)} className="w-full text-left px-3 py-2 text-sm flex items-center gap-3 hover:bg-brand-primary text-red-500">
                                         <XCircleIcon className="w-4 h-4" />
                                         <span>Remove from list</span>
                                     </button>
                                 </div>
                             )}
                         </div>
+                        <div className="relative" ref={reviewWrapperRef}>
+                             <button
+                                onClick={(e) => { e.stopPropagation(); setReviewPopoverOpen(p => !p); }}
+                                className={`p-2 rounded-full transition-colors bg-black/50 text-white hover:bg-green-400`}
+                                title="Add/Edit Review" aria-haspopup="true" aria-expanded={reviewPopoverOpen}
+                            >
+                                <ChatBubbleOvalLeftEllipsisIcon className="w-5 h-5" />
+                            </button>
+                             {reviewPopoverOpen && (
+                                <div onClick={e => e.stopPropagation()} className="absolute right-0 top-full mt-2 w-64 bg-brand-secondary rounded-md shadow-lg z-20 p-3 ring-1 ring-black/5 animate-fade-in" style={{ animationDuration: '150ms' }}>
+                                    <div className="flex justify-between items-center mb-2">
+                                        <button 
+                                            onClick={() => { handleReviewSave(); setCurrentReviewEpisode(p => Math.max(1, p - 1)); }}
+                                            disabled={currentReviewEpisode === 1}
+                                            className="p-1 rounded-full hover:bg-brand-primary disabled:opacity-50"
+                                        >
+                                            <ChevronLeftIcon className="w-5 h-5" />
+                                        </button>
+                                        <p className="text-sm font-semibold">Episode {currentReviewEpisode} / {drama.episodes}</p>
+                                        <button 
+                                            onClick={() => { handleReviewSave(); setCurrentReviewEpisode(p => Math.min(drama.episodes, p + 1)); }}
+                                            disabled={currentReviewEpisode === drama.episodes}
+                                            className="p-1 rounded-full hover:bg-brand-primary disabled:opacity-50"
+                                        >
+                                            <ChevronRightIcon className="w-5 h-5" />
+                                        </button>
+                                    </div>
+                                    <textarea
+                                        value={reviewText}
+                                        onChange={(e) => setReviewText(e.target.value)}
+                                        rows={5}
+                                        placeholder="Your thoughts..."
+                                        onBlur={handleReviewSave}
+                                        className="w-full bg-brand-primary p-2 rounded-md focus:ring-2 focus:ring-brand-accent focus:outline-none text-sm resize-y"
+                                    />
+                                </div>
+                            )}
+                        </div>
                         </>
                     )}
                 </div>
-
-                {/* Information overlay at the bottom of the card with a subtle gradient background. */}
                 <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/80 to-transparent">
                     <h3 className="text-md font-bold truncate text-brand-text-primary">{drama.title}</h3>
                     <div className="flex items-center text-sm text-brand-text-secondary mt-1">

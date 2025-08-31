@@ -21,10 +21,8 @@ import { AuthModal } from './components/AuthModal';
 import { DramaDetailModal } from './components/DramaDetailModal';
 import { CastDetailModal } from './components/CastDetailModal';
 import { HomePage } from './components/HomePage';
-import { EpisodeReviewsModal } from './components/EpisodeReviewsModal';
 import { AllReviewsPage } from './components/AllReviewsPage';
 import { BottomNavBar } from './components/BottomNavBar';
-import { ConflictResolutionModal } from './components/ConflictResolutionModal';
 import { AdminPanel } from './components/AdminPanel';
 
 
@@ -41,15 +39,14 @@ export default function App() {
         isFilterSidebarOpen, toggleFilterSidebar,
         currentPage, setCurrentPage,
         theme, toggleTheme,
-        conflictData, openConflictModal, closeConflictModal,
     } = useUIState();
 
     // `useAuth`: Encapsulates all logic related to user authentication and user-specific data.
     const {
         currentUser, userData, isAuthLoading,
         login, logout, register,
-        toggleFavorite, setDramaStatus, setEpisodeReview, resolveReviewConflict
-    } = useAuth(closeAuthModal, openConflictModal); // Pass callbacks.
+        toggleFavorite, setDramaStatus, setReviewAndTrackProgress
+    } = useAuth(closeAuthModal); // Pass callbacks.
 
     // `useLocalStorage`: Persists filter and sort settings across browser sessions.
     const [filters, setFilters] = useLocalStorage<Filters>(LOCAL_STORAGE_KEYS.FILTERS, { genres: [], excludeGenres: [], tags: [], excludeTags: [], countries: [], cast: [], minRating: 0 });
@@ -92,11 +89,6 @@ export default function App() {
         pushModal({ type: 'cast', actorName });
     }, [pushModal]);
     
-    /** Handles opening the episode reviews modal by pushing it onto the stack. */
-    const handleOpenEpisodeReviews = useCallback((drama: Drama) => {
-        pushModal({ type: 'reviews', drama });
-    }, [pushModal]);
-
     /** Handles changes to the main search input field. */
     const handleSearchChange = (term: string) => {
         setSearchTerm(term);
@@ -147,11 +139,11 @@ export default function App() {
         }
     }, [setDramaStatus, openAuthModal]);
     
-    const handleSetEpisodeReview = useCallback((...args: Parameters<typeof setEpisodeReview>) => {
-        if (!setEpisodeReview(...args)) {
+    const handleSetReviewAndTrackProgress = useCallback((...args: Parameters<typeof setReviewAndTrackProgress>) => {
+        if (!setReviewAndTrackProgress(...args)) {
             openAuthModal();
         }
-    }, [setEpisodeReview, openAuthModal]);
+    }, [setReviewAndTrackProgress, openAuthModal]);
     
     /** Logs the user out and navigates back to the home page. */
     const handleLogout = () => {
@@ -183,6 +175,7 @@ export default function App() {
                         onPageChange={setCurrentPage}
                         onOpenFilters={() => toggleFilterSidebar(true)}
                         onFiltersChange={handleFiltersChange}
+                        onSetReviewAndTrackProgress={handleSetReviewAndTrackProgress}
                     />
                 );
             case 'my-list':
@@ -193,6 +186,7 @@ export default function App() {
                         onSelectDrama={handleSelectDrama} 
                         onToggleFavorite={handleToggleFavorite}
                         onSetStatus={handleSetStatus}
+                        onSetReviewAndTrackProgress={handleSetReviewAndTrackProgress}
                     />
                 );
             case 'all-reviews':
@@ -255,13 +249,6 @@ export default function App() {
 
             <AuthModal isOpen={isAuthModalOpen} onClose={closeAuthModal} onLogin={login} onRegister={register} />
             
-            <ConflictResolutionModal 
-                isOpen={!!conflictData}
-                data={conflictData}
-                onClose={closeConflictModal}
-                onResolve={resolveReviewConflict}
-            />
-
             {activeModal?.type === 'drama' && (
                 <DramaDetailModal 
                     drama={activeModal.drama}
@@ -271,12 +258,7 @@ export default function App() {
                     onSelectDrama={handleSelectDrama}
                     onSetQuickFilter={handleSetQuickFilter} 
                     onSelectActor={handleSelectActor} 
-                    userData={userData} 
-                    onSetStatus={handleSetStatus} 
-                    onToggleFavorite={handleToggleFavorite} 
-                    currentUser={currentUser} 
                     filters={filters}
-                    onOpenEpisodeReviews={handleOpenEpisodeReviews}
                     showBackButton={modalStack.length > 1}
                 />
             )}
@@ -290,16 +272,7 @@ export default function App() {
                     userData={userData} 
                     onToggleFavorite={handleToggleFavorite} 
                     onSetStatus={handleSetStatus} 
-                    showBackButton={modalStack.length > 1}
-                />
-            )}
-            {activeModal?.type === 'reviews' && (
-                 <EpisodeReviewsModal 
-                    drama={activeModal.drama}
-                    userData={userData} 
-                    onCloseAll={closeAllModals} 
-                    onPopModal={popModal}
-                    onSetEpisodeReview={handleSetEpisodeReview} 
+                    onSetReviewAndTrackProgress={handleSetReviewAndTrackProgress}
                     showBackButton={modalStack.length > 1}
                 />
             )}

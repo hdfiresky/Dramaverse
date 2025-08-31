@@ -43,6 +43,8 @@ interface HomePageProps {
     onOpenFilters: () => void;
     /** Callback to update filter values, passed to ActiveFiltersDisplay. */
     onFiltersChange: (updates: Partial<Filters>) => void;
+    /** Callback to save a review and automatically track user progress. */
+    onSetReviewAndTrackProgress: (drama: Drama, episodeNumber: number, text: string) => void;
 }
 
 /**
@@ -69,6 +71,7 @@ export const HomePage: React.FC<HomePageProps> = ({
     onPageChange,
     onOpenFilters,
     onFiltersChange,
+    onSetReviewAndTrackProgress,
 }) => {
     
     // Display a loading spinner while the initial data is being fetched.
@@ -136,6 +139,7 @@ export const HomePage: React.FC<HomePageProps> = ({
                             userData={userData} 
                             onToggleFavorite={onToggleFavorite} 
                             onSetStatus={onSetStatus}
+                            onSetReviewAndTrackProgress={onSetReviewAndTrackProgress}
                         />
                     ))}
                 </div>
