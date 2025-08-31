@@ -24,6 +24,7 @@ import { HomePage } from './components/HomePage';
 import { AllReviewsPage } from './components/AllReviewsPage';
 import { BottomNavBar } from './components/BottomNavBar';
 import { AdminPanel } from './components/AdminPanel';
+import { ConflictResolutionModal } from './components/ConflictResolutionModal';
 
 
 export default function App() {
@@ -31,7 +32,7 @@ export default function App() {
     // The App component composes various custom hooks to manage different aspects of the application state.
 
     // `useUIState`: Manages the state of the UI itself, like active views and open modals.
-    // NOTE: This is called first because useDramas depends on currentPage from it.
+    // NOTE: This is called first because other hooks depend on it.
     const {
         activeView, navigateTo,
         modalStack, pushModal, popModal, closeAllModals,
@@ -39,14 +40,16 @@ export default function App() {
         isFilterSidebarOpen, toggleFilterSidebar,
         currentPage, setCurrentPage,
         theme, toggleTheme,
+        conflictData, openConflictModal, closeConflictModal,
     } = useUIState();
 
     // `useAuth`: Encapsulates all logic related to user authentication and user-specific data.
     const {
         currentUser, userData, isAuthLoading,
         login, logout, register,
-        toggleFavorite, setDramaStatus, setReviewAndTrackProgress
-    } = useAuth(closeAuthModal); // Pass callbacks.
+        toggleFavorite, setDramaStatus, setReviewAndTrackProgress,
+        resolveConflict
+    } = useAuth(closeAuthModal, openConflictModal); // Pass callbacks.
 
     // `useLocalStorage`: Persists filter and sort settings across browser sessions.
     const [filters, setFilters] = useLocalStorage<Filters>(LOCAL_STORAGE_KEYS.FILTERS, { genres: [], excludeGenres: [], tags: [], excludeTags: [], countries: [], cast: [], minRating: 0 });
@@ -60,7 +63,6 @@ export default function App() {
     const debouncedSearchTerm = useDebounce(searchTerm, 300); // Debounce search input for 300ms.
 
     // `useDramas`: Fetches and processes all drama data, including filtering and sorting.
-    // It now accepts `currentPage` to handle server-side pagination.
     const { 
         displayDramas, 
         totalDramas, 
@@ -74,10 +76,6 @@ export default function App() {
     useEffect(() => {
         setCurrentPage(1);
     }, [debouncedSearchTerm, filters, sortPriorities, setCurrentPage]);
-
-    // --- HANDLER FUNCTIONS ---
-    // These handlers connect user actions from child components to the state logic within the hooks.
-    // They are defined here to be passed down as props.
 
     /** Handles opening a drama modal by pushing it onto the stack. */
     const handleSelectDrama = useCallback((drama: Drama) => {
@@ -101,7 +99,6 @@ export default function App() {
 
     /**
      * Handles a click on a genre or tag pill, toggling its inclusion in the filters.
-     * This is a "quick filter" action from the DramaDetailModal.
      */
     const handleSetQuickFilter = useCallback((type: 'genre' | 'tag', value: string) => {
         setFilters(prev => {
@@ -109,12 +106,10 @@ export default function App() {
             const excludeKey = type === 'genre' ? 'excludeGenres' : 'excludeTags';
             const currentValues = prev[key];
             
-            // If the value is already included, remove it. Otherwise, add it.
             const newValues = currentValues.includes(value)
                 ? currentValues.filter(v => v !== value)
                 : [...currentValues, value];
             
-            // If we just added an include filter, ensure it's not in the exclude list.
             const newExcludeValues = newValues.length > currentValues.length
                 ? prev[excludeKey].filter(v => v !== value)
                 : prev[excludeKey];
@@ -123,26 +118,16 @@ export default function App() {
         });
     }, [setFilters]);
 
-    // --- Authenticated Action Handlers ---
-    // These handlers wrap actions that require a user to be logged in.
-    // If the user is not logged in, they open the authentication modal.
-
     const handleToggleFavorite = useCallback((dramaUrl: string) => {
-        if (!toggleFavorite(dramaUrl)) {
-            openAuthModal(); // The hook returns false if there's no user.
-        }
+        if (!toggleFavorite(dramaUrl)) openAuthModal();
     }, [toggleFavorite, openAuthModal]);
     
     const handleSetStatus = useCallback((...args: Parameters<typeof setDramaStatus>) => {
-        if (!setDramaStatus(...args)) {
-            openAuthModal();
-        }
+        if (!setDramaStatus(...args)) openAuthModal();
     }, [setDramaStatus, openAuthModal]);
     
     const handleSetReviewAndTrackProgress = useCallback((...args: Parameters<typeof setReviewAndTrackProgress>) => {
-        if (!setReviewAndTrackProgress(...args)) {
-            openAuthModal();
-        }
+        if (!setReviewAndTrackProgress(...args)) openAuthModal();
     }, [setReviewAndTrackProgress, openAuthModal]);
     
     /** Logs the user out and navigates back to the home page. */
@@ -201,7 +186,6 @@ export default function App() {
                  if (currentUser?.isAdmin) {
                     return <AdminPanel allDramas={allDramas} currentUser={currentUser} />;
                 }
-                // Fallback for non-admins trying to access the route
                 navigateTo('home');
                 return null;
             default:
@@ -209,7 +193,6 @@ export default function App() {
         }
     };
     
-    // In backend mode, show a loading spinner while validating the user's token.
     if (isAuthLoading) {
         return (
             <div className="min-h-screen font-sans flex items-center justify-center bg-brand-primary">
@@ -217,7 +200,6 @@ export default function App() {
             </div>
         );
     }
-
 
     return (
         <div className="min-h-screen font-sans">
@@ -248,6 +230,13 @@ export default function App() {
             </main>
 
             <AuthModal isOpen={isAuthModalOpen} onClose={closeAuthModal} onLogin={login} onRegister={register} />
+
+            <ConflictResolutionModal
+                isOpen={!!conflictData}
+                data={conflictData}
+                onClose={closeConflictModal}
+                onResolve={resolveConflict}
+            />
             
             {activeModal?.type === 'drama' && (
                 <DramaDetailModal 

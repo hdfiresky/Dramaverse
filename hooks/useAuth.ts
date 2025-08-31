@@ -205,7 +205,7 @@ export const useAuth = (onLoginSuccess?: () => void, openConflictModal?: (data: 
     const login = useCallback(async (username: string, password: string): Promise<string | null> => {
         if (BACKEND_MODE) {
             try {
-                // Authenticate. The server will set the cookie and return all user data.
+                // Authenticate. The server will set the cookie and return all user data in a single response.
                 const loginRes = await fetch(`${API_BASE_URL}/auth/login`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -218,7 +218,6 @@ export const useAuth = (onLoginSuccess?: () => void, openConflictModal?: (data: 
                 // The backend now returns user and data directly, so no second call is needed.
                 const { user, data } = responseData;
                 
-                // Set all state at once.
                 setCurrentUser(user);
                 setUserData(data);
                 
@@ -251,13 +250,12 @@ export const useAuth = (onLoginSuccess?: () => void, openConflictModal?: (data: 
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ username, password }),
-                    credentials: 'include', // Important for register to set cookie
+                    credentials: 'include',
                 });
                 const responseData = await res.json();
                 if (!res.ok) return responseData.message || "Registration failed.";
 
-                // The backend now returns the full user payload on successful registration.
-                // We can use this directly to set the state without a second API call.
+                // The backend now logs the user in and returns the full payload on successful registration.
                 const { user, data } = responseData;
 
                 setCurrentUser(user);
@@ -281,7 +279,6 @@ export const useAuth = (onLoginSuccess?: () => void, openConflictModal?: (data: 
             const updatedUsers = { ...localUsers, [username]: newUser };
             setLocalUsers(updatedUsers);
             
-            // Replicate login logic directly to avoid stale state issues.
             setLocalLoggedInUser({ username, isAdmin: false });
             setUserData(EMPTY_USER_DATA);
             onLoginSuccess?.();
@@ -292,15 +289,10 @@ export const useAuth = (onLoginSuccess?: () => void, openConflictModal?: (data: 
     const logout = useCallback(async () => {
         if (BACKEND_MODE) {
             try {
-                // Ask the server to clear the HttpOnly cookie
-                await fetch(`${API_BASE_URL}/auth/logout`, {
-                    method: 'POST',
-                    credentials: 'include',
-                });
+                await fetch(`${API_BASE_URL}/auth/logout`, { method: 'POST', credentials: 'include' });
             } catch (error) {
                 console.error("Logout request failed, but clearing client state anyway.", error);
             } finally {
-                // Always clear client-side state regardless of API call success
                 setCurrentUser(null);
                 setUserData(EMPTY_USER_DATA);
             }
@@ -320,10 +312,8 @@ export const useAuth = (onLoginSuccess?: () => void, openConflictModal?: (data: 
             try {
                 const res = await fetch(`${API_BASE_URL}${endpoint}`, {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    credentials: 'include', // This sends the cookie.
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'include',
                     body: JSON.stringify(body)
                 });
                  if (res.status === 409) {
@@ -335,10 +325,11 @@ export const useAuth = (onLoginSuccess?: () => void, openConflictModal?: (data: 
                     });
                 } else if (!res.ok) {
                     console.error('API update failed with status:', res.status);
-                    setUserData(oldUserData);
+                    setUserData(oldUserData); // Revert on hard error
                 }
             } catch (error) {
                 console.log('Network error detected. Request queued for background sync.', error);
+                // Do not revert on network error for PWA offline support
             }
         } else {
             localStorage.setItem(`${LOCAL_STORAGE_KEYS.USER_DATA_PREFIX}${currentUser.username}`, JSON.stringify(newUserData));
@@ -346,6 +337,37 @@ export const useAuth = (onLoginSuccess?: () => void, openConflictModal?: (data: 
         return true;
     }, [currentUser, userData, openConflictModal]);
     
+     const resolveConflict = useCallback(async (conflictData: ConflictData, resolution: 'client' | 'server') => {
+        if (resolution === 'client') {
+            // Re-send the original request with a 'force' flag.
+            await authenticatedUpdate(
+                conflictData.endpoint,
+                { ...conflictData.clientPayload, force: true }, // Add force flag
+                (currentData) => {
+                    // Optimistic update was already applied, so we just need to re-apply it
+                    // to ensure the state is consistent before the forced API call.
+                    const newUserData = JSON.parse(JSON.stringify(currentData));
+                    const { episodeReviews } = newUserData;
+                    const { dramaUrl, episodeNumber, text } = conflictData.clientPayload;
+                    if (!episodeReviews[dramaUrl]) episodeReviews[dramaUrl] = {};
+                    episodeReviews[dramaUrl][episodeNumber] = { text, updatedAt: Date.now() }; // Update timestamp
+                    return newUserData;
+                }
+            );
+        } else { // resolution === 'server'
+            // Update local state to match the server's version.
+            setUserData(currentData => {
+                const newUserData = JSON.parse(JSON.stringify(currentData));
+                const { episodeReviews } = newUserData;
+                const { dramaUrl, episodeNumber } = conflictData.clientPayload;
+                const { text, updatedAt } = conflictData.serverVersion;
+                if (!episodeReviews[dramaUrl]) episodeReviews[dramaUrl] = {};
+                episodeReviews[dramaUrl][episodeNumber] = { text, updatedAt };
+                return newUserData;
+            });
+        }
+    }, [authenticatedUpdate]);
+
     const toggleFavorite = useCallback((dramaUrl: string) => {
         const isFavorite = userData.favorites.includes(dramaUrl);
         return authenticatedUpdate(
@@ -377,18 +399,13 @@ export const useAuth = (onLoginSuccess?: () => void, openConflictModal?: (data: 
                 const newStatuses = { ...currentData.statuses };
                 const newListUpdateTimestamps = { ...currentData.listUpdateTimestamps };
                 
-                if (!newStatus) { // Status is being removed
+                if (!newStatus) {
                     delete newStatuses[dramaUrl];
-                    if (oldStatus) {
-                        newListUpdateTimestamps[oldStatus] = now;
-                    }
-                } else { // Status is being added or changed
+                    if (oldStatus) newListUpdateTimestamps[oldStatus] = now;
+                } else {
                     newStatuses[dramaUrl] = statusWithTimestamp;
                     newListUpdateTimestamps[newStatus] = now;
-                    // Also update the timestamp for the list the drama was moved FROM
-                    if (oldStatus && oldStatus !== newStatus) {
-                        newListUpdateTimestamps[oldStatus] = now;
-                    }
+                    if (oldStatus && oldStatus !== newStatus) newListUpdateTimestamps[oldStatus] = now;
                 }
                 return { ...currentData, statuses: newStatuses, listUpdateTimestamps: newListUpdateTimestamps };
             }
@@ -397,14 +414,13 @@ export const useAuth = (onLoginSuccess?: () => void, openConflictModal?: (data: 
 
     const setReviewAndTrackProgress = useCallback((drama: Drama, episodeNumber: number, text: string) => {
         const { url: dramaUrl, episodes: totalEpisodes } = drama;
+        const clientUpdatedAt = userData.episodeReviews?.[dramaUrl]?.[episodeNumber]?.updatedAt || 0;
         
-        // This is a composite action. It updates reviews AND statuses.
-        // We'll give it a unique endpoint conceptually, but handle it with a single optimistic update.
         return authenticatedUpdate(
-            '/user/reviews/track_progress', // A new conceptual endpoint for clarity
-            { dramaUrl, episodeNumber, text, totalEpisodes },
+            '/user/reviews/track_progress',
+            { dramaUrl, episodeNumber, text, totalEpisodes, clientUpdatedAt },
             (currentData) => {
-                const newUserData = JSON.parse(JSON.stringify(currentData)); // deep clone
+                const newUserData = JSON.parse(JSON.stringify(currentData));
                 const { episodeReviews, statuses, listUpdateTimestamps } = newUserData;
                 const now = Date.now();
     
@@ -412,9 +428,7 @@ export const useAuth = (onLoginSuccess?: () => void, openConflictModal?: (data: 
                 if (!episodeReviews[dramaUrl]) episodeReviews[dramaUrl] = {};
                 if (text.trim() === '') {
                     delete episodeReviews[dramaUrl][episodeNumber];
-                    if (Object.keys(episodeReviews[dramaUrl]).length === 0) {
-                        delete episodeReviews[dramaUrl];
-                    }
+                    if (Object.keys(episodeReviews[dramaUrl]).length === 0) delete episodeReviews[dramaUrl];
                 } else {
                     episodeReviews[dramaUrl][episodeNumber] = { text, updatedAt: now };
                 }
@@ -423,44 +437,29 @@ export const useAuth = (onLoginSuccess?: () => void, openConflictModal?: (data: 
                 if (text.trim() !== '') {
                     const oldStatusInfo = statuses[dramaUrl];
                     const oldStatus = oldStatusInfo?.status;
-                    
-                    let newStatusInfo: UserDramaStatus = oldStatusInfo 
-                        ? { ...oldStatusInfo } 
-                        : { status: DramaStatus.PlanToWatch, currentEpisode: 0, updatedAt: 0 };
+                    let newStatusInfo: UserDramaStatus = oldStatusInfo ? { ...oldStatusInfo } : { status: DramaStatus.PlanToWatch, currentEpisode: 0, updatedAt: 0 };
     
-                    // Auto-set to 'Watching' if it was 'Plan to Watch' or unset
                     if (!newStatusInfo.status || newStatusInfo.status === DramaStatus.PlanToWatch) {
                         newStatusInfo.status = DramaStatus.Watching;
                     }
-                    
-                    // Update progress to the latest reviewed episode
                     newStatusInfo.currentEpisode = Math.max(newStatusInfo.currentEpisode || 0, episodeNumber);
     
-                    // Auto-set to 'Completed' if they reviewed the last episode
                     if (episodeNumber === totalEpisodes) {
                         newStatusInfo.status = DramaStatus.Completed;
                         newStatusInfo.currentEpisode = totalEpisodes;
                     }
     
-                    // If status or episode number has changed, update the status object and timestamps
                     if (!oldStatusInfo || newStatusInfo.status !== oldStatus || newStatusInfo.currentEpisode !== oldStatusInfo.currentEpisode) {
                         newStatusInfo.updatedAt = now;
                         statuses[dramaUrl] = newStatusInfo;
-                        
-                        // Update timestamp for the list the drama is NOW in
                         listUpdateTimestamps[newStatusInfo.status] = now;
-                        // Also update timestamp for the list it was IN, to re-sort that list too
-                        if (oldStatus && oldStatus !== newStatusInfo.status) {
-                            listUpdateTimestamps[oldStatus] = now;
-                        }
+                        if (oldStatus && oldStatus !== newStatusInfo.status) listUpdateTimestamps[oldStatus] = now;
                     }
                 }
-                
                 return newUserData;
             }
         );
-    }, [authenticatedUpdate]);
-    
+    }, [authenticatedUpdate, userData.episodeReviews]);
 
     return {
         currentUser,
@@ -472,5 +471,6 @@ export const useAuth = (onLoginSuccess?: () => void, openConflictModal?: (data: 
         toggleFavorite,
         setDramaStatus,
         setReviewAndTrackProgress,
+        resolveConflict
     };
 };
