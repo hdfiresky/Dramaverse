@@ -77,23 +77,47 @@ export const MyListPage: React.FC<MyListPageProps> = ({ allDramas, userData, onS
         setActiveFilter(getInitialFilter(userData));
     }, [userData.listUpdateTimestamps]);
 
-    // Memoize the categorized lists of dramas to prevent re-computation on every render.
+    // Effect to scroll to the top of the page whenever the active filter changes.
+    useEffect(() => {
+        window.scrollTo(0, 0);
+    }, [activeFilter]);
+
+    // Memoize the categorized and sorted lists of dramas to prevent re-computation on every render.
     const dramasByStatus = useMemo(() => {
         const lists: Record<DramaStatus | 'Favorites', Drama[]> = { [DramaStatus.Watching]: [], [DramaStatus.Completed]: [], [DramaStatus.OnHold]: [], [DramaStatus.Dropped]: [], [DramaStatus.PlanToWatch]: [], Favorites: [] };
         const dramaMap = new Map(allDramas.map(d => [d.url, d]));
 
+        // Temporary structure to hold dramas with their update times, grouped by status
+        const tempStatusLists: Partial<Record<DramaStatus, { drama: Drama; updatedAt: number }[]>> = {};
+
+        // Group dramas by status, attaching their update timestamp
         for (const url in userData.statuses) {
             const drama = dramaMap.get(url);
-            if (drama && userData.statuses[url].status) {
-                lists[userData.statuses[url].status].push(drama);
+            const statusInfo = userData.statuses[url];
+            if (drama && statusInfo?.status) {
+                if (!tempStatusLists[statusInfo.status]) {
+                    tempStatusLists[statusInfo.status] = [];
+                }
+                tempStatusLists[statusInfo.status]!.push({ drama, updatedAt: statusInfo.updatedAt });
             }
         }
+        
+        // Sort each status list by timestamp (most recent first)
+        for (const status in tempStatusLists) {
+            const typedStatus = status as DramaStatus;
+            lists[typedStatus] = tempStatusLists[typedStatus]!
+                .sort((a, b) => b.updatedAt - a.updatedAt)
+                .map(item => item.drama);
+        }
+
+        // Favorites are already ordered by most recently added (via prepending in useAuth)
         for (const url of userData.favorites) {
             const drama = dramaMap.get(url);
             if (drama) {
                 lists.Favorites.push(drama);
             }
         }
+
         return lists;
     }, [allDramas, userData.favorites, userData.statuses]);
 

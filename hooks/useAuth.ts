@@ -358,7 +358,7 @@ export const useAuth = (onLoginSuccess?: () => void, openConflictModal?: (data: 
             (currentData) => {
                 const newFavorites = isFavorite
                     ? currentData.favorites.filter(url => url !== dramaUrl)
-                    : [...currentData.favorites, dramaUrl];
+                    : [dramaUrl, ...currentData.favorites];
                 const newListUpdateTimestamps = {
                     ...currentData.listUpdateTimestamps,
                     ['Favorites']: Date.now(),
