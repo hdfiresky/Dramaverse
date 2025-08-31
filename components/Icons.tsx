@@ -185,13 +185,6 @@ export const ChevronRightIcon: React.FC<IconProps> = ({ className }) => (
     </svg>
 );
 
-/** Renders a chevron down icon. Used for dropdowns. */
-export const ChevronDownIcon: React.FC<IconProps> = ({ className }) => (
-    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
-    </svg>
-);
-
 /**
  * Renders a sun icon. Used for the theme toggle.
  * @param {IconProps} props - Component props.

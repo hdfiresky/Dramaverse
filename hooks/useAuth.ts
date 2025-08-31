@@ -267,25 +267,20 @@ export const useAuth = (onLoginSuccess?: () => void, openConflictModal?: (data: 
         } else {
             if (localUsers[username]) return "Username already exists.";
             
+            // The default 'admin' account is now seeded. New user registrations are never admins by default.
             const newUser: LocalStoredUser = {
-                id: Date.now(),
+                id: Date.now(), // Simple unique ID
                 password: password,
                 isAdmin: false,
                 is_banned: false,
             };
 
-            // Update the full user list
-            setLocalUsers(prevUsers => ({ ...prevUsers, [username]: newUser }));
+            setLocalUsers({ ...localUsers, [username]: newUser });
 
-            // Directly log the user in to avoid stale state issues with calling `login` immediately.
-            setLocalLoggedInUser({ username, isAdmin: false });
-            
-            // Manually trigger the success callback
-            onLoginSuccess?.();
-
-            return null; // Success
+            // Automatically log the new user in, which will set the correct session state
+            return await login(username, password);
         }
-    }, [localUsers, setLocalUsers, login, onLoginSuccess, setLocalLoggedInUser]);
+    }, [localUsers, setLocalUsers, login]);
 
     const logout = useCallback(async () => {
         if (BACKEND_MODE) {
@@ -437,35 +432,6 @@ export const useAuth = (onLoginSuccess?: () => void, openConflictModal?: (data: 
             }
         }
     }, [currentUser]);
-
-    const changePassword = useCallback(async (currentPassword: string, newPassword: string): Promise<string | null> => {
-        if (!currentUser) return "You must be logged in.";
-
-        if (BACKEND_MODE) {
-            try {
-                const res = await fetch(`${API_BASE_URL}/user/change-password`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ currentPassword, newPassword }),
-                    credentials: 'include',
-                });
-                const data = await res.json();
-                if (!res.ok) return data.message || "Failed to change password.";
-                return null; // Success
-            } catch (error) {
-                return "Could not connect to the server.";
-            }
-        } else {
-            const users = { ...localUsers };
-            const userFromStorage = users[currentUser.username];
-            if (!userFromStorage || userFromStorage.password !== currentPassword) {
-                return "Incorrect current password.";
-            }
-            userFromStorage.password = newPassword;
-            setLocalUsers(users);
-            return null; // Success
-        }
-    }, [currentUser, localUsers, setLocalUsers]);
     
 
     return {
@@ -475,7 +441,6 @@ export const useAuth = (onLoginSuccess?: () => void, openConflictModal?: (data: 
         register,
         login,
         logout,
-        changePassword,
         toggleFavorite,
         setDramaStatus,
         togglePlanToWatch,

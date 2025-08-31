@@ -271,7 +271,7 @@ const UserManagementModal: React.FC<UserManagementModalProps> = ({ user, current
                                 <p className="text-xs text-slate-400">Toggle administrator role.</p>
                             </div>
                         </button>
-                         <button onClick={onToggleBan} disabled={user.isAdmin} className="w-full text-left p-3 hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center gap-3 rounded-md disabled:opacity-50 disabled:cursor-not-allowed">
+                         <button onClick={onToggleBan} className="w-full text-left p-3 hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center gap-3 rounded-md">
                             {user.is_banned ? <CheckBadgeIcon className="w-5 h-5 text-green-400" /> : <BanIcon className="w-5 h-5 text-yellow-400" />}
                             <div>
                                 <p className="font-semibold">{user.is_banned ? 'Unban User' : 'Ban User'}</p>
@@ -288,7 +288,7 @@ const UserManagementModal: React.FC<UserManagementModalProps> = ({ user, current
                                 <p className="text-xs text-slate-400">Generate a new temporary password.</p>
                             </div>
                         </button>
-                        <button onClick={onDeleteUser} disabled={user.isAdmin} className="w-full text-left p-3 hover:bg-red-100 dark:hover:bg-red-900/50 flex items-center gap-3 rounded-md text-red-600 dark:text-red-400 disabled:opacity-50 disabled:cursor-not-allowed mt-2">
+                        <button onClick={onDeleteUser} disabled={currentUser?.username === user.username} className="w-full text-left p-3 hover:bg-red-100 dark:hover:bg-red-900/50 flex items-center gap-3 rounded-md text-red-600 dark:text-red-400 disabled:opacity-50 disabled:cursor-not-allowed mt-2">
                             <TrashIcon className="w-5 h-5" />
                             <div>
                                 <p className="font-semibold">Delete User</p>
@@ -431,10 +431,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ allDramas, currentUser }
                                     <div className="flex-1 min-w-0">
                                         <p className="font-medium text-brand-text-primary truncate">{user.username}</p>
                                         <div className="flex items-center gap-2 mt-1">
-                                            <span className={`px-2 py-0.5 text-xs font-semibold rounded-full ${user.is_banned ? 'bg-red-500/20 text-red-300' : 'bg-blue-500/20 text-blue-300'}`}>
+                                            <span className={`px-2 py-0.5 text-xs font-semibold rounded-full ${user.is_banned ? 'bg-red-500/20 text-red-300' : 'bg-green-500/20 text-green-300'}`}>
                                                 {user.is_banned ? 'Banned' : 'Active'}
                                             </span>
-                                            <span className={`px-2 py-0.5 text-xs font-semibold rounded-full ${user.isAdmin ? 'bg-indigo-500/20 text-indigo-300' : 'bg-slate-500/20 text-slate-300'}`}>
+                                            <span className={`px-2 py-0.5 text-xs font-semibold rounded-full ${user.isAdmin ? 'bg-yellow-500/20 text-yellow-300' : 'bg-slate-500/20 text-slate-300'}`}>
                                                 {user.isAdmin ? 'Admin' : 'User'}
                                             </span>
                                         </div>

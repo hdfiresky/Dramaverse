@@ -2,7 +2,7 @@
  * @fileoverview Defines the authentication modal component for user login and registration.
  * It is rendered using a React Portal to avoid CSS stacking issues.
  */
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import ReactDOM from 'react-dom';
 
 // Fix: Updated onLogin and onRegister prop types to accept a Promise, aligning with the async functions from useAuth.
@@ -43,19 +43,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onLogin, 
     // State for displaying feedback (errors or success messages) to the user.
     const [error, setError] = useState('');
     const [success, setSuccess] = useState('');
-
-    // This effect ensures the modal resets to its default state (login form)
-    // whenever it is opened. This robustly handles all cases, such as re-opening
-    // after a failed registration attempt or after a successful registration.
-    useEffect(() => {
-        if (isOpen) {
-            setIsLogin(true);
-            setError('');
-            setSuccess('');
-            setUsername('');
-            setPassword('');
-        }
-    }, [isOpen]);
 
     /**
      * Handles the form submission for both login and registration.
