@@ -22,6 +22,12 @@ export const BASE_PATH = '/dramaverse/';
 export const BACKEND_MODE = false;
 
 /**
+ * Enables verbose, color-coded logging for the Socket.IO connection in the browser console.
+ * Set to `false` for production to avoid cluttering the console.
+ */
+export const ENABLE_DEBUG_LOGGING = true;
+
+/**
  * The base URL for the backend API.
  * This is only used when BACKEND_MODE is true.
  * It is constructed from the BASE_PATH constant to work correctly in subdirectories.

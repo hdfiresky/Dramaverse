@@ -9,7 +9,7 @@ import { io, Socket } from 'socket.io-client';
 import { useLocalStorage } from './useLocalStorage';
 import { User, UserData, UserDramaStatus, DramaStatus, ConflictData, EpisodeReview } from '../types';
 import { LOCAL_STORAGE_KEYS } from './lib/constants';
-import { BASE_PATH, BACKEND_MODE, API_BASE_URL, WEBSOCKET_URL } from '../config';
+import { BASE_PATH, BACKEND_MODE, API_BASE_URL, WEBSOCKET_URL, ENABLE_DEBUG_LOGGING } from '../config';
 
 const EMPTY_USER_DATA: UserData = { favorites: [], statuses: {}, reviews: {}, episodeReviews: {} };
 
@@ -79,6 +79,10 @@ export const useAuth = (onLoginSuccess?: () => void, openConflictModal?: (data: 
             // The server must be configured to listen on this same path.
             const socketPath = `${BASE_PATH}socket.io/`.replace('//', '/');
 
+            if (ENABLE_DEBUG_LOGGING) {
+                 console.log(`%c[Socket.IO] Initializing connection to endpoint: ${WEBSOCKET_URL || window.location.origin} with path: ${socketPath}`, 'color: #2196f3;');
+            }
+
             const newSocket: Socket = io(WEBSOCKET_URL, {
                 auth: { token: authToken },
                 path: socketPath,
@@ -86,10 +90,21 @@ export const useAuth = (onLoginSuccess?: () => void, openConflictModal?: (data: 
                 reconnectionAttempts: 5,
                 reconnectionDelay: 1000,
             });
+
+            if (ENABLE_DEBUG_LOGGING) {
+                newSocket.on('connect', () => console.log('%c[Socket.IO] Connected successfully.', 'color: #4caf50; font-weight: bold;'));
+                newSocket.on('disconnect', (reason) => console.warn(`%c[Socket.IO] Disconnected. Reason: ${reason}`, 'color: #ff9800;'));
+                newSocket.on('connect_error', (error) => console.error('%c[Socket.IO] Connection Error:', 'color: #f44336; font-weight: bold;', error));
+                newSocket.io.on('reconnect_attempt', (attempt) => console.log(`%c[Socket.IO] Reconnect attempt #${attempt}`, 'color: #2196f3;'));
+                newSocket.io.on('reconnect', (attempt) => console.log(`%c[Socket.IO] Reconnected after ${attempt} attempts.`, 'color: #4caf50; font-weight: bold;'));
+                newSocket.io.on('reconnect_failed', () => console.error('%c[Socket.IO] Failed to reconnect.', 'color: #f44336; font-weight: bold;'));
+            }
+
             setSocket(newSocket);
 
             // This cleanup function runs when authToken changes or the component unmounts
             return () => {
+                if (ENABLE_DEBUG_LOGGING) console.log('%c[Socket.IO] Cleaning up and disconnecting socket.', 'color: #ff9800;');
                 newSocket.disconnect();
                 setSocket(null);
             };
@@ -99,12 +114,10 @@ export const useAuth = (onLoginSuccess?: () => void, openConflictModal?: (data: 
     // Effect to manage socket event listeners for granular real-time updates.
     useEffect(() => {
         if (!socket) return;
-
-        socket.on('connect', () => console.log('Socket connected.'));
-        socket.on('disconnect', () => console.log('Socket disconnected.'));
         
         // Listener for favorite updates
         const handleFavoriteUpdate = ({ dramaUrl, isFavorite }: { dramaUrl: string, isFavorite: boolean }) => {
+            if (ENABLE_DEBUG_LOGGING) console.log('%c[Socket.IO] Received event: favorite_updated', 'color: #9c27b0;', { dramaUrl, isFavorite });
             setUserData(currentData => {
                 const newFavorites = isFavorite
                     ? [...currentData.favorites, dramaUrl]
@@ -116,6 +129,7 @@ export const useAuth = (onLoginSuccess?: () => void, openConflictModal?: (data: 
 
         // Listener for status updates
         const handleStatusUpdate = ({ dramaUrl, statusInfo }: { dramaUrl: string, statusInfo: UserDramaStatus }) => {
+            if (ENABLE_DEBUG_LOGGING) console.log('%c[Socket.IO] Received event: status_updated', 'color: #9c27b0;', { dramaUrl, statusInfo });
             setUserData(currentData => {
                 const newStatuses = { ...currentData.statuses };
                 if (!statusInfo || !statusInfo.status) {
@@ -129,6 +143,7 @@ export const useAuth = (onLoginSuccess?: () => void, openConflictModal?: (data: 
 
         // Listener for episode review updates
         const handleEpisodeReviewUpdate = ({ dramaUrl, episodeNumber, review }: { dramaUrl: string, episodeNumber: number, review: EpisodeReview | null }) => {
+            if (ENABLE_DEBUG_LOGGING) console.log('%c[Socket.IO] Received event: episode_review_updated', 'color: #9c27b0;', { dramaUrl, episodeNumber, review });
             setUserData(currentData => {
                 const newEpisodeReviews = JSON.parse(JSON.stringify(currentData.episodeReviews));
                 if (!newEpisodeReviews[dramaUrl]) {
@@ -152,8 +167,6 @@ export const useAuth = (onLoginSuccess?: () => void, openConflictModal?: (data: 
 
         // Cleanup listeners when the socket instance changes or component unmounts.
         return () => {
-            socket.off('connect');
-            socket.off('disconnect');
             socket.off('favorite_updated', handleFavoriteUpdate);
             socket.off('status_updated', handleStatusUpdate);
             socket.off('episode_review_updated', handleEpisodeReviewUpdate);

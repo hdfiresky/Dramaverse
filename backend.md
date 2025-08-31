@@ -281,7 +281,7 @@ function emitToUserRoom(userId, event, payload) {
     if (!userId || !event || !payload) return;
     const room = `user_${userId}`;
     io.to(room).emit(event, payload);
-    console.log(`Emitted event '${event}' to room '${room}'`);
+    console.log(`[Socket.IO Emit] Emitted event '${event}' to room '${room}' with payload:`, JSON.stringify(payload));
 }
 
 async function fetchUserData(userId) {
@@ -326,31 +326,34 @@ console.log(`Socket.IO server listening on path: ${SOCKET_IO_PATH}`);
 // --- SOCKET.IO MIDDLEWARE & LISTENERS ---
 io.use((socket, next) => {
     const token = socket.handshake.auth.token;
+    console.log(`[Socket.IO Auth] Attempting to authenticate connection from ${socket.handshake.address} with transport ${socket.handshake.query.transport}`);
     if (!token) {
-        console.warn(`Socket connection rejected: No token provided from ${socket.handshake.address}.`);
+        console.error(`[Socket.IO Auth] REJECTED: No token provided from ${socket.handshake.address}.`);
         return next(new Error('Authentication error: Token not provided.'));
     }
     jwt.verify(token, JWT_SECRET, (err, decoded) => {
         if (err) {
-            console.warn(`Socket connection rejected: Invalid token from ${socket.handshake.address}.`);
+            console.error(`[Socket.IO Auth] REJECTED: Invalid token from ${socket.handshake.address}. Error: ${err.message}`);
             return next(new Error('Authentication error: Invalid token.'));
         }
+        console.log(`[Socket.IO Auth] SUCCESS: Authenticated user '${decoded.username}' (ID: ${decoded.id})`);
         socket.user = decoded;
         next();
     });
 });
 io.on('connection', (socket) => {
-    console.log(`Real-time client connected: ${socket.user.username} (ID: ${socket.user.id})`);
+    console.log(`[Socket.IO Connect] Client connected: '${socket.user.username}' (ID: ${socket.user.id}) using transport: ${socket.conn.transport.name}. Socket ID: ${socket.id}`);
     socket.join(`user_${socket.user.id}`);
+    console.log(`[Socket.IO Rooms] User '${socket.user.username}' joined room 'user_${socket.user.id}'`);
 
     // Security Hardening: Add a wildcard listener to log any unexpected, unsolicited events from clients.
     // In our architecture, clients should not be emitting any events after connection. This serves as a monitor.
     socket.onAny((event, ...args) => {
-        console.warn(`SECURITY_WARN: Received unexpected event '${event}' from user '${socket.user.username}' (ID: ${socket.user.id}).`);
+        console.warn(`[Socket.IO Security] Received unexpected event '${event}' from user '${socket.user.username}' (ID: ${socket.user.id}).`);
     });
 
     socket.on('disconnect', (reason) => {
-        console.log(`Real-time client disconnected: ${socket.user.username}. Reason: ${reason}`);
+        console.log(`[Socket.IO Disconnect] Client disconnected: ${socket.user.username}. Reason: ${reason}. Socket ID: ${socket.id}`);
     });
 });
 
