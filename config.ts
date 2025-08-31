@@ -11,7 +11,7 @@
  * 1. Set this flag to `true`.
  * 2. Ensure the backend server is running (see backend.md).
  */
-export const BACKEND_MODE = false;
+export const BACKEND_MODE = true;
 
 /**
  * The base URL for the backend API.

@@ -1,4 +1,5 @@
 
+
 # Dramaverse Backend Setup Guide (Single File)
 
 This document provides a comprehensive guide to setting up and running the optional backend server for the Dramaverse application. This version consolidates all logic into a **single `server.js` file** for simplicity and easier maintenance. When enabled, the backend provides persistent storage and **real-time, multi-device data synchronization**.
@@ -319,9 +320,11 @@ app.post('/api/user/favorites', authMiddleware, (req, res) => {
     const sql = isFavorite 
         ? 'INSERT OR IGNORE INTO user_favorites (user_id, drama_url) VALUES (?, ?)'
         : 'DELETE FROM user_favorites WHERE user_id = ? AND drama_url = ?';
-    db.run(sql, [req.user.id, dramaUrl], (err) => {
+    db.run(sql, [req.user.id, dramaUrl], function(err) {
         if (err) return res.status(500).json({ message: 'Database error' });
-        emitUserDataUpdate(req.user.id);
+        if (this.changes > 0) { // Only emit if there was a change
+            emitUserDataUpdate(req.user.id);
+        }
         res.status(200).json({ success: true });
     });
 });
@@ -339,9 +342,9 @@ app.post('/api/user/statuses', authMiddleware, (req, res) => {
             res.status(200).json({ success: true });
         });
     } else {
-        db.run('INSERT OR REPLACE INTO user_statuses (user_id, drama_url, status, currentEpisode) VALUES (?, ?, ?, ?)', [req.user.id, dramaUrl, status, currentEpisode || 0], (err) => {
+        db.run('INSERT OR REPLACE INTO user_statuses (user_id, drama_url, status, currentEpisode) VALUES (?, ?, ?, ?)', [req.user.id, dramaUrl, status, currentEpisode || 0], function(err) {
             if (err) return res.status(500).json({ message: 'Database error' });
-            emitUserDataUpdate(req.user.id);
+            if (this.changes > 0) emitUserDataUpdate(req.user.id);
             res.status(200).json({ success: true });
         });
     }
@@ -375,9 +378,24 @@ app.post('/api/user/reviews/episodes', authMiddleware, (req, res) => {
     });
 });
 
-// --- SERVER START ---
+// --- SERVER START & GRACEFUL SHUTDOWN ---
 server.listen(PORT, () => {
     console.log(`Server with real-time support is running on http://localhost:${PORT}`);
+});
+
+process.on('SIGINT', () => {
+    console.log('SIGINT signal received: closing HTTP server and database.');
+    server.close(() => {
+        console.log('HTTP server closed.');
+        db.close((err) => {
+            if (err) {
+                console.error('Error closing the database:', err.message);
+            } else {
+                console.log('Database connection closed.');
+            }
+            process.exit(0);
+        });
+    });
 });
 ```
 
