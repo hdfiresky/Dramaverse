@@ -282,7 +282,19 @@ async function runMigrations() {
                 await connection.beginTransaction();
                 const statements = migration.up.split(';').map(s => s.trim()).filter(s => s.length > 0);
                 for (const statement of statements) {
-                    await connection.execute(statement);
+                    try {
+                        await connection.execute(statement);
+                    } catch (statementErr) {
+                        // If the error is specifically about a duplicate column, we can ignore it
+                        // as it means a previous, failed migration attempt partially succeeded.
+                        // This makes the migration script idempotent for column additions.
+                        if (statementErr.code === 'ER_DUP_FIELDNAME') {
+                            console.warn(`  ...WARN: Column in statement already exists, likely from a previous run. Skipping. Statement: "${statement}"`);
+                        } else {
+                            // For any other error, re-throw to trigger the rollback.
+                            throw statementErr;
+                        }
+                    }
                 }
                 await connection.execute('INSERT INTO migrations (name) VALUES (?)', [migration.name]);
                 await connection.commit();

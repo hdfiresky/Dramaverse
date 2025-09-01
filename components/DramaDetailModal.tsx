@@ -172,7 +172,8 @@ export const DramaDetailModal: React.FC<DramaDetailModalProps> = ({ drama, allDr
 
         const scoredDramas = allDramas
             .filter(d => d.url !== drama.url) // Exclude the drama itself
-            .map(candidate => {
+            // FIX: Explicitly type `candidate` as Drama to fix type inference issues with Set creation.
+            .map((candidate: Drama) => {
                 let totalScore = 0;
 
                 // For each selected criterion, calculate a score and add it to the total.

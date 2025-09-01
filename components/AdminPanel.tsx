@@ -4,7 +4,7 @@
  */
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import ReactDOM from 'react-dom';
-import { AdminUserView, UserData, Drama, DramaStatus, User } from '../types';
+import { AdminUserView, UserData, Drama, DramaStatus, User, UserDramaStatus } from '../types';
 import { 
     ChevronRightIcon, EyeIcon, BookmarkIcon, CheckCircleIcon, PauseIcon, XCircleIcon, 
     UserIcon, FilmIcon, ChatBubbleOvalLeftEllipsisIcon, SearchIcon, InformationCircleIcon,
@@ -43,7 +43,7 @@ const UserDetailView: React.FC<{ userData: UserData; allDramas: Drama[] }> = ({ 
     const content = useMemo(() => {
         switch (activeTab) {
             case 'favorites':
-                const favoriteDramas = userData.favorites.map(url => dramaMap.get(url)).filter(Boolean) as Drama[];
+                const favoriteDramas = userData.favorites.map(url => dramaMap.get(url)).filter((d): d is Drama => Boolean(d));
                 return favoriteDramas.length > 0 ? (
                     <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
                         {favoriteDramas.map(d => (
@@ -80,11 +80,12 @@ const UserDetailView: React.FC<{ userData: UserData; allDramas: Drama[] }> = ({ 
 
             case 'statuses':
             default:
-                const statuses = Object.entries(userData.statuses).map(([url, statusInfo]) => ({ drama: dramaMap.get(url), ...statusInfo })).filter(item => item.drama && item.status);
+                // FIX: Add explicit type to [url, statusInfo] to resolve spread operator error.
+                const statuses = Object.entries(userData.statuses).map(([url, statusInfo]: [string, UserDramaStatus]) => ({ drama: dramaMap.get(url), ...statusInfo })).filter(item => item.drama && item.status);
                 return statuses.length > 0 ? (
                     <div className="space-y-2">
                         {statuses.map(({ drama, status, currentEpisode }) => {
-                            const Icon = statusIconMap[status];
+                            const Icon = statusIconMap[status as DramaStatus];
                             return (
                                 <div key={drama!.url} className="flex items-center gap-2 bg-slate-700/50 p-2 rounded">
                                     {Icon && <Icon className="w-5 h-5 flex-shrink-0" />}
@@ -177,11 +178,13 @@ const AdvancedStats: React.FC<{
         const dramaMap = new Map<string, { drama: Drama, favoriteCount: number, watchCount: number }>();
         dramas.forEach(d => dramaMap.set(d.url, { drama: d, favoriteCount: 0, watchCount: 0 }));
 
-        Object.values(allUserData).forEach(userData => {
+        // FIX: Add explicit type to `userData` to resolve property access errors.
+        Object.values(allUserData).forEach((userData: UserData) => {
             userData.favorites.forEach(url => {
                 if (dramaMap.has(url)) dramaMap.get(url)!.favoriteCount++;
             });
-            Object.entries(userData.statuses).forEach(([url, statusInfo]) => {
+            // FIX: Add explicit type to [url, statusInfo] to resolve property access errors.
+            Object.entries(userData.statuses).forEach(([url, statusInfo]: [string, UserDramaStatus]) => {
                 if ((statusInfo.status === DramaStatus.Watching || statusInfo.status === DramaStatus.Completed) && dramaMap.has(url)) {
                     dramaMap.get(url)!.watchCount++;
                 }
@@ -384,7 +387,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ allDramas, currentUser }
     }, [users, searchTerm]);
     
     const dashboardStats = useMemo(() => {
-        const totalReviews = Object.values(allUserData).reduce((acc, data) => {
+        // FIX: Add explicit type to `data` to resolve property access errors on `episodeReviews`.
+        const totalReviews = Object.values(allUserData).reduce((acc, data: UserData) => {
             return acc + Object.keys(data.episodeReviews).reduce((reviewAcc, url) => {
                 return reviewAcc + Object.keys(data.episodeReviews[url]).length;
             }, 0);

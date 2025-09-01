@@ -4,7 +4,7 @@
  * making components cleaner and state persistence reusable. It is a generic
  * hook that can store any serializable data type.
  */
-import { useState, useCallback } from 'react';
+import { useState, useCallback, Dispatch, SetStateAction } from 'react';
 
 /**
  * A custom hook that syncs a state value with localStorage.
@@ -16,7 +16,8 @@ import { useState, useCallback } from 'react';
  * @param {T} initialValue The initial value to use if nothing is found in localStorage or if an error occurs.
  * @returns {[T, React.Dispatch<React.SetStateAction<T>>]} A stateful value, and a function to update it, identical to the `useState` hook signature.
  */
-export const useLocalStorage = <T,>(key: string, initialValue: T): [T, React.Dispatch<React.SetStateAction<T>>] => {
+// FIX: Changed React.Dispatch and React.SetStateAction to be imported directly.
+export const useLocalStorage = <T,>(key: string, initialValue: T): [T, Dispatch<SetStateAction<T>>] => {
     // Pass a lazy initializer function to useState. This function will only be
     // executed once on the initial render, improving performance.
     const [storedValue, setStoredValue] = useState<T>(() => {

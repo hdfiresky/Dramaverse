@@ -130,7 +130,8 @@ export const AllReviewsPage: React.FC<AllReviewsPageProps> = ({ allDramas, userD
             const reviewsData = userData.episodeReviews[dramaUrl];
 
             if (drama && reviewsData) {
-                const reviews = Object.entries(reviewsData).map(([epNum, review]) => ({
+                // FIX: Explicitly type the [epNum, review] tuple to resolve 'unknown' type error on 'review'.
+                const reviews = Object.entries(reviewsData).map(([epNum, review]: [string, EpisodeReview]) => ({
                     episodeNumber: parseInt(epNum, 10),
                     text: review.text,
                     updatedAt: review.updatedAt,
