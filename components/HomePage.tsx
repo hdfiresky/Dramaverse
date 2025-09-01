@@ -74,16 +74,6 @@ export const HomePage: React.FC<HomePageProps> = ({
     onSetReviewAndTrackProgress,
 }) => {
     
-    // Display a loading spinner while the initial data is being fetched.
-    if (isLoading) {
-        return (
-            <div className="flex justify-center items-center h-[calc(100vh-200px)]">
-                <div className="w-16 h-16 border-4 border-dashed rounded-full animate-spin border-brand-accent"></div>
-                <span className="sr-only">Loading...</span>
-            </div>
-        );
-    }
-    
     // Display an error message if the data could not be loaded.
     if (dataError) {
         return <div className="text-center py-20 text-red-400">{dataError}</div>;
@@ -112,9 +102,11 @@ export const HomePage: React.FC<HomePageProps> = ({
             {/* Component to display and allow removal of active filters */}
             <ActiveFiltersDisplay filters={filters} onFiltersChange={onFiltersChange} />
 
-            {/* Result count and message */}
-            <div className="mb-4 text-sm text-brand-text-secondary">
-                {totalDramas > 0 ? (
+            {/* Result count and message - now shows a loading state */}
+            <div className="mb-4 text-sm text-brand-text-secondary h-5">
+                 {isLoading ? (
+                    <span className="animate-pulse">Searching...</span>
+                 ) : totalDramas > 0 ? (
                     <span>
                         Showing{' '}
                         <strong>{((currentPage - 1) * itemsPerPage) + 1}</strong>
@@ -128,30 +120,36 @@ export const HomePage: React.FC<HomePageProps> = ({
                 )}
             </div>
 
-            {/* The main grid of drama cards */}
-            {dramas.length > 0 ? (
-                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-6">
-                    {dramas.map(drama => (
-                        <DramaCard 
-                            key={drama.url} 
-                            drama={drama} 
-                            onSelect={onSelectDrama} 
-                            userData={userData} 
-                            onToggleFavorite={onToggleFavorite} 
-                            onSetStatus={onSetStatus}
-                            onSetReviewAndTrackProgress={onSetReviewAndTrackProgress}
-                        />
-                    ))}
+            {/* The main content area: shows a spinner, the grid, or nothing */}
+            {isLoading ? (
+                <div className="flex justify-center items-center h-[calc(100vh-400px)]">
+                    <div className="w-16 h-16 border-4 border-dashed rounded-full animate-spin border-brand-accent"></div>
+                    <span className="sr-only">Loading dramas...</span>
                 </div>
-            ) : null}
-            
-            {/* Pagination controls, displayed at the bottom */}
-            <Pagination 
-                currentPage={currentPage} 
-                totalItems={totalDramas} 
-                itemsPerPage={itemsPerPage} 
-                onPageChange={onPageChange} 
-            />
+            ) : totalDramas > 0 ? (
+                <>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-6">
+                        {dramas.map(drama => (
+                            <DramaCard 
+                                key={drama.url} 
+                                drama={drama} 
+                                onSelect={onSelectDrama} 
+                                userData={userData} 
+                                onToggleFavorite={onToggleFavorite} 
+                                onSetStatus={onSetStatus}
+                                onSetReviewAndTrackProgress={onSetReviewAndTrackProgress}
+                            />
+                        ))}
+                    </div>
+                    
+                    <Pagination 
+                        currentPage={currentPage} 
+                        totalItems={totalDramas} 
+                        itemsPerPage={itemsPerPage} 
+                        onPageChange={onPageChange} 
+                    />
+                </>
+            ) : null /* The "No dramas" message is handled by the result count section above */}
         </>
     );
 };

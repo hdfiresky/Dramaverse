@@ -370,3 +370,10 @@ export const Cog6ToothIcon: React.FC<IconProps> = ({ className }) => (
       <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
     </svg>
 );
+
+/** Renders a shuffle icon for the randomize button. */
+export const ArrowPathIcon: React.FC<IconProps> = ({ className }) => (
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M7.5 21 3 16.5m0 0L7.5 12M3 16.5h18m-7.5-3.75L21 7.5m0 0L16.5 3M21 7.5H3" />
+    </svg>
+);

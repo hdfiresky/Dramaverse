@@ -62,6 +62,11 @@ export default function App() {
     const [searchTerm, setSearchTerm] = useState('');
     const debouncedSearchTerm = useDebounce(searchTerm, 300); // Debounce search input for 300ms.
 
+    // State to manage the sorting mode. Can be 'weighted' for user-defined sort or 'random'.
+    const [sortMode, setSortMode] = useState<'weighted' | 'random'>('weighted');
+    // A seed value that can be changed to trigger a new randomization.
+    const [randomSeed, setRandomSeed] = useState(() => Date.now());
+
     // `useDramas`: Fetches and processes all drama data, including filtering and sorting.
     const { 
         displayDramas, 
@@ -70,12 +75,12 @@ export default function App() {
         metadata, 
         isLoading, 
         dataError 
-    } = useDramas(filters, debouncedSearchTerm, sortPriorities, currentPage);
+    } = useDramas(filters, debouncedSearchTerm, sortPriorities, currentPage, sortMode, randomSeed);
 
     // Effect to reset pagination to the first page whenever the data set changes due to new filters, search, or sorting.
     useEffect(() => {
         setCurrentPage(1);
-    }, [debouncedSearchTerm, filters, sortPriorities, setCurrentPage]);
+    }, [debouncedSearchTerm, filters, sortPriorities, sortMode, randomSeed, setCurrentPage]);
 
     /** Handles opening a drama modal by pushing it onto the stack. */
     const handleSelectDrama = useCallback((drama: Drama) => {
@@ -96,6 +101,15 @@ export default function App() {
     const handleFiltersChange = useCallback((newFilterValues: Partial<Filters>) => {
         setFilters(prev => ({...prev, ...newFilterValues}));
     }, [setFilters]);
+    
+    /**
+     * A wrapper for updating sort priorities.
+     * Any change to the weighted sort automatically switches the mode back to 'weighted'.
+     */
+    const handleSortPrioritiesChange = useCallback((priorities: SortPriority[]) => {
+        setSortPriorities(priorities);
+        setSortMode('weighted');
+    }, [setSortPriorities, setSortMode]);
 
     /**
      * Handles a click on a genre or tag pill, toggling its inclusion in the filters.
@@ -222,7 +236,10 @@ export default function App() {
                 filters={filters} 
                 onFiltersChange={handleFiltersChange}
                 sortPriorities={sortPriorities}
-                onSortPrioritiesChange={setSortPriorities}
+                onSortPrioritiesChange={handleSortPrioritiesChange}
+                sortMode={sortMode}
+                onSetSortMode={setSortMode}
+                onSetRandomSeed={setRandomSeed}
             />
 
             <main className={`min-w-0 py-8 px-4 sm:px-6 lg:px-8 ${currentUser ? 'pb-24 md:pb-8' : 'pb-8'}`}>

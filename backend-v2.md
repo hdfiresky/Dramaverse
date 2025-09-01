@@ -237,12 +237,15 @@ const migrations = [
             );
         `
     },
+    // Split the ALTER TABLE statements into separate, more atomic migrations.
+    // This makes them individually transactional and easier to debug.
     {
-        name: '002_add_updated_at_timestamps',
-        up: `
-            ALTER TABLE user_favorites ADD COLUMN updated_at BIGINT;
-            ALTER TABLE user_statuses ADD COLUMN updated_at BIGINT;
-        `
+        name: '002_add_updated_at_to_favorites',
+        up: `ALTER TABLE user_favorites ADD COLUMN updated_at BIGINT;`
+    },
+    {
+        name: '003_add_updated_at_to_statuses',
+        up: `ALTER TABLE user_statuses ADD COLUMN updated_at BIGINT;`
     }
 ];
 
@@ -426,7 +429,7 @@ app.get('/api/health', (req, res) => res.status(200).json({ status: 'ok' }));
 app.get('/api/dramas/metadata', apiLimiter, (req, res) => res.json(inMemoryMetadata));
 
 app.get('/api/dramas', apiLimiter, (req, res) => {
-    const { page = '1', limit = '24', search = '', minRating = '0', genres = '', excludeGenres = '', tags = '', excludeTags = '', countries = '', cast = '', sort = '[]' } = req.query;
+    const { page = '1', limit = '24', search = '', minRating = '0', genres = '', excludeGenres = '', tags = '', excludeTags = '', countries = '', cast = '', sort = '[]', sortMode = 'weighted' } = req.query;
     const filters = {
         genres: genres.split(',').filter(Boolean), excludeGenres: excludeGenres.split(',').filter(Boolean),
         tags: tags.split(',').filter(Boolean), excludeTags: excludeTags.split(',').filter(Boolean),
@@ -443,11 +446,21 @@ app.get('/api/dramas', apiLimiter, (req, res) => {
         (filters.excludeTags.length === 0 || !filters.excludeTags.some(t => d.tagsSet.has(t))) &&
         (filters.cast.length === 0 || filters.cast.every(actor => d.castSet.has(actor)))
     );
-    const sortPriorities = JSON.parse(sort);
-    if (sortPriorities.length > 0 && result.length > 0) {
-        // Weighted sort logic here... (omitted for brevity, remains the same)
+
+    if (sortMode === 'random') {
+        for (let i = result.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [result[i], result[j]] = [result[j], result[i]];
+        }
+    } else {
+        const sortPriorities = JSON.parse(sort);
+        if (sortPriorities.length > 0 && result.length > 0) {
+            // Weighted sort logic here... (remains the same)
+        } else {
+            result.sort((a,b) => a.popularity_rank - b.popularity_rank);
+        }
     }
-    result.sort((a,b) => a.popularity_rank - b.popularity_rank);
+
     res.json({
         totalItems: result.length,
         dramas: result.slice((parseInt(page) - 1) * parseInt(limit), parseInt(page) * parseInt(limit)).map(({ genresSet, tagsSet, castSet, ...rest }) => rest),

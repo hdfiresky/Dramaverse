@@ -16,9 +16,11 @@ import { ITEMS_PER_PAGE } from './lib/constants';
  * @param {string} searchTerm - The current search term from the search bar.
  * @param {SortPriority[]} sortPriorities - The user-defined sort configuration.
  * @param {number} currentPage - The current page number for pagination.
+ * @param {'weighted' | 'random'} sortMode - The sorting strategy to apply.
+ * @param {number} randomSeed - A changing value to trigger re-randomization.
  * @returns An object containing the raw drama list, the filtered/sorted list, loading/error states, and filter metadata.
  */
-export const useDramas = (filters: Filters, searchTerm: string, sortPriorities: SortPriority[], currentPage: number) => {
+export const useDramas = (filters: Filters, searchTerm: string, sortPriorities: SortPriority[], currentPage: number, sortMode: 'weighted' | 'random', randomSeed: number) => {
     // This state holds the full, unprocessed list of dramas. It's fetched once
     // and used for modals (recommendations, cast lookup) in both modes.
     const [rawDramas, setRawDramas] = useState<Drama[]>([]);
@@ -71,6 +73,31 @@ export const useDramas = (filters: Filters, searchTerm: string, sortPriorities: 
         fetchInitialData();
     }, []);
 
+    // Effect to derive metadata specifically for frontend-only mode.
+    // This runs once after the raw drama data has been loaded.
+    useEffect(() => {
+        if (!BACKEND_MODE && rawDramas.length > 0) {
+            const allGenres = new Set<string>();
+            const allTags = new Set<string>();
+            const allCountries = new Set<string>();
+            const allCast = new Set<string>();
+    
+            rawDramas.forEach(d => {
+                d.genres.forEach(g => allGenres.add(g));
+                d.tags.forEach(t => allTags.add(t));
+                allCountries.add(d.country);
+                d.cast.forEach(c => allCast.add(c.actor_name));
+            });
+    
+            setMetadata({
+                genres: Array.from(allGenres).sort(),
+                tags: Array.from(allTags).sort(),
+                countries: Array.from(allCountries).sort(),
+                cast: Array.from(allCast).sort(),
+            });
+        }
+    }, [rawDramas]);
+
     // Memoized, pre-processed dramas for efficient client-side filtering (frontend-only mode).
     const processedDramas = useMemo(() => {
         if (BACKEND_MODE) return [];
@@ -96,7 +123,8 @@ export const useDramas = (filters: Filters, searchTerm: string, sortPriorities: 
                         limit: String(ITEMS_PER_PAGE),
                         search: searchTerm,
                         minRating: String(filters.minRating),
-                        sort: JSON.stringify(sortPriorities),
+                        sortMode, // Pass the sort mode to the backend
+                        sort: sortMode === 'weighted' ? JSON.stringify(sortPriorities) : '[]',
                     });
                     if (filters.genres.length > 0) params.set('genres', filters.genres.join(','));
                     if (filters.excludeGenres.length > 0) params.set('excludeGenres', filters.excludeGenres.join(','));
@@ -119,29 +147,6 @@ export const useDramas = (filters: Filters, searchTerm: string, sortPriorities: 
                 }
             } else {
                 // In frontend mode, do all processing in the browser.
-                if (processedDramas.length === 0 && rawDramas.length > 0) {
-                     // Metadata derivation for frontend mode
-                     const allGenres = new Set<string>();
-                     const allTags = new Set<string>();
-                     const allCountries = new Set<string>();
-                     const allCast = new Set<string>();
- 
-                     rawDramas.forEach(d => {
-                         d.genres.forEach(g => allGenres.add(g));
-                         d.tags.forEach(t => allTags.add(t));
-                         allCountries.add(d.country);
-                         d.cast.forEach(c => allCast.add(c.actor_name));
-                     });
- 
-                     setMetadata({
-                         genres: Array.from(allGenres).sort(),
-                         tags: Array.from(allTags).sort(),
-                         countries: Array.from(allCountries).sort(),
-                         cast: Array.from(allCast).sort(),
-                     });
-                }
-
-
                 let result = processedDramas;
                 if (searchTerm) {
                     const lowercasedSearchTerm = searchTerm.toLowerCase();
@@ -159,7 +164,16 @@ export const useDramas = (filters: Filters, searchTerm: string, sortPriorities: 
                         (filters.cast.length === 0 || filters.cast.every(actor => d.castSet.has(actor)))
                     );
                 }
-                if (sortPriorities.length > 0 && result.length > 0) {
+                
+                // Apply sorting based on sortMode
+                if (sortMode === 'random') {
+                    // In-place Fisher-Yates shuffle for randomization
+                    for (let i = result.length - 1; i > 0; i--) {
+                        const j = Math.floor(Math.random() * (i + 1));
+                        [result[i], result[j]] = [result[j], result[i]];
+                    }
+                } else if (sortPriorities.length > 0 && result.length > 0) {
+                    // Weighted sort logic
                     const stats = { rating: { min: Infinity, max: -Infinity }, popularity_rank: { min: Infinity, max: -Infinity }, watchers: { min: Infinity, max: -Infinity }, aired_date: { min: Infinity, max: -Infinity }};
                     result.forEach(d => {
                         stats.rating.min = Math.min(stats.rating.min, d.rating); stats.rating.max = Math.max(stats.rating.max, d.rating);
@@ -201,7 +215,9 @@ export const useDramas = (filters: Filters, searchTerm: string, sortPriorities: 
         filters, 
         searchTerm, 
         sortPriorities, 
-        currentPage
+        currentPage,
+        sortMode,
+        randomSeed,
     ]);
 
     return {

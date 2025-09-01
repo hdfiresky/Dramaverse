@@ -2,7 +2,7 @@ import React, { useState, useMemo, useRef, useEffect } from 'react';
 import ReactDOM from 'react-dom';
 import { Filters, NumericSortKey, SortPriority } from '../types';
 import { FilterSection } from './FilterSection';
-import { CloseIcon, Bars3Icon, ArrowLongUpIcon, ArrowLongDownIcon, SearchIcon } from './Icons';
+import { CloseIcon, Bars3Icon, ArrowLongUpIcon, ArrowLongDownIcon, SearchIcon, ArrowPathIcon } from './Icons';
 
 /**
  * @fileoverview Defines the FilterSidebar component.
@@ -25,6 +25,12 @@ interface FilterSidebarProps {
     sortPriorities: SortPriority[];
     /** Callback to update the list of sort priorities. */
     onSortPrioritiesChange: (priorities: SortPriority[]) => void;
+    /** The current sort mode. */
+    sortMode: 'weighted' | 'random';
+    /** Callback to set the sort mode. */
+    onSetSortMode: (mode: 'weighted' | 'random') => void;
+    /** Callback to trigger a new randomization by setting a seed. */
+    onSetRandomSeed: (seed: number) => void;
 }
 
 const SORTABLE_KEYS: { key: NumericSortKey; label: string }[] = [
@@ -52,7 +58,10 @@ export const FilterSidebar: React.FC<FilterSidebarProps> = ({
     filters,
     onFiltersChange,
     sortPriorities,
-    onSortPrioritiesChange
+    onSortPrioritiesChange,
+    sortMode,
+    onSetSortMode,
+    onSetRandomSeed,
 }) => {
     
     const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
@@ -157,6 +166,20 @@ export const FilterSidebar: React.FC<FilterSidebarProps> = ({
     
     const handleDragEnd = () => setDraggedIndex(null);
 
+    // --- Randomization Handler ---
+    const handleRandomClick = () => {
+        if (sortMode === 'random') {
+            // Already in random mode, just trigger a new shuffle.
+            onSetRandomSeed(Date.now());
+        } else {
+            // Switching to random mode.
+            onSetSortMode('random');
+            onSetRandomSeed(Date.now()); // Set a fresh seed.
+        }
+        onClose();
+    };
+
+
     // Memoize derived data to prevent recalculation on every render
     const availableKeys = useMemo(() => 
         SORTABLE_KEYS.filter(k => !sortPriorities.some(p => p.key === k.key)),
@@ -211,47 +234,68 @@ export const FilterSidebar: React.FC<FilterSidebarProps> = ({
                 </div>
                 
                 <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar">
-                    {/* --- NEW Weighted Sorting Controls --- */}
+                    {/* --- Sorting Controls --- */}
                     <div>
-                        <h3 className="text-lg font-semibold mb-1">Weighted Sorting</h3>
-                        <p className="text-xs text-brand-text-secondary mb-3">Drag to re-order priority. Higher items have more weight.</p>
-                        <div className="space-y-2">
-                            {sortPriorities.map((p, index) => {
-                                const label = SORTABLE_KEYS.find(k => k.key === p.key)?.label || p.key;
-                                return (
-                                    <div 
-                                        key={p.key}
-                                        draggable
-                                        onDragStart={() => handleDragStart(index)}
-                                        onDragOver={(e) => handleDragOver(e, index)}
-                                        onDragEnd={handleDragEnd}
-                                        className={`flex items-center gap-2 p-2 rounded-md bg-brand-primary border border-gray-700 transition-opacity ${draggedIndex === index ? 'opacity-50' : 'opacity-100'}`}
-                                    >
-                                        <Bars3Icon className="w-5 h-5 text-gray-500 cursor-grab"/>
-                                        <span className="flex-grow font-medium text-sm">{label}</span>
-                                        <button onClick={() => handleToggleOrder(index)} className="p-1 hover:bg-brand-secondary rounded-md" title={`Toggle order`}>
-                                            {p.order === 'asc' ? <ArrowLongUpIcon className="w-5 h-5 text-green-400"/> : <ArrowLongDownIcon className="w-5 h-5 text-yellow-400"/>}
-                                        </button>
-                                        <button onClick={() => handleRemovePriority(index)} className="p-1 hover:bg-brand-secondary rounded-md" title="Remove criterion">
-                                            <CloseIcon className="w-5 h-5 text-red-500"/>
-                                        </button>
-                                    </div>
-                                );
-                            })}
+                        <div className="flex justify-between items-center mb-3">
+                            <h3 className="text-lg font-semibold">Sorting</h3>
                         </div>
-                        {availableKeys.length > 0 && (
-                            <div className="flex gap-2 mt-3">
-                                <select 
-                                    value={newPriorityKey} 
-                                    onChange={e => setNewPriorityKey(e.target.value as NumericSortKey)} 
-                                    className="w-full bg-brand-primary p-2 rounded-md focus:ring-2 focus:ring-brand-accent focus:outline-none text-sm"
-                                >
-                                    <option value="" disabled>Add criterion...</option>
-                                    {availableKeys.map(k => <option key={k.key} value={k.key}>{k.label}</option>)}
-                                </select>
-                                <button onClick={handleAddPriority} className="px-4 py-2 text-sm font-semibold bg-brand-accent hover:bg-brand-accent-hover rounded-md transition-colors whitespace-nowrap">Add</button>
+                         <div className="grid grid-cols-2 gap-2">
+                            <button
+                                onClick={() => onSetSortMode('weighted')}
+                                className={`w-full py-2 text-sm font-semibold rounded-md transition-colors flex items-center justify-center gap-1.5 ${sortMode === 'weighted' ? 'bg-brand-accent text-white' : 'bg-brand-primary text-brand-text-secondary hover:bg-slate-700'}`}
+                                aria-pressed={sortMode === 'weighted'}
+                            >
+                                Weighted
+                            </button>
+                            <button
+                                onClick={handleRandomClick}
+                                className={`w-full py-2 text-sm font-semibold rounded-md transition-colors flex items-center justify-center gap-1.5 ${sortMode === 'random' ? 'bg-brand-accent text-white' : 'bg-brand-primary text-brand-text-secondary hover:bg-slate-700'}`}
+                                aria-pressed={sortMode === 'random'}
+                            >
+                                <ArrowPathIcon className="w-4 h-4" />
+                                <span>{sortMode === 'random' ? 'Again' : 'Random'}</span>
+                            </button>
+                        </div>
+                         <div className={`transition-opacity duration-300 mt-3 ${sortMode === 'random' ? 'opacity-50 pointer-events-none' : 'opacity-100'}`}>
+                            <p className="text-xs text-brand-text-secondary mb-3">Drag to re-order priority. Higher items have more weight.</p>
+                            <div className="space-y-2">
+                                {sortPriorities.map((p, index) => {
+                                    const label = SORTABLE_KEYS.find(k => k.key === p.key)?.label || p.key;
+                                    return (
+                                        <div 
+                                            key={p.key}
+                                            draggable
+                                            onDragStart={() => handleDragStart(index)}
+                                            onDragOver={(e) => handleDragOver(e, index)}
+                                            onDragEnd={handleDragEnd}
+                                            className={`flex items-center gap-2 p-2 rounded-md bg-brand-primary border border-gray-700 transition-opacity ${draggedIndex === index ? 'opacity-50' : 'opacity-100'}`}
+                                        >
+                                            <Bars3Icon className="w-5 h-5 text-gray-500 cursor-grab"/>
+                                            <span className="flex-grow font-medium text-sm">{label}</span>
+                                            <button onClick={() => handleToggleOrder(index)} className="p-1 hover:bg-brand-secondary rounded-md" title={`Toggle order`}>
+                                                {p.order === 'asc' ? <ArrowLongUpIcon className="w-5 h-5 text-green-400"/> : <ArrowLongDownIcon className="w-5 h-5 text-yellow-400"/>}
+                                            </button>
+                                            <button onClick={() => handleRemovePriority(index)} className="p-1 hover:bg-brand-secondary rounded-md" title="Remove criterion">
+                                                <CloseIcon className="w-5 h-5 text-red-500"/>
+                                            </button>
+                                        </div>
+                                    );
+                                })}
                             </div>
-                        )}
+                            {availableKeys.length > 0 && (
+                                <div className="flex gap-2 mt-3">
+                                    <select 
+                                        value={newPriorityKey} 
+                                        onChange={e => setNewPriorityKey(e.target.value as NumericSortKey)} 
+                                        className="w-full bg-brand-primary p-2 rounded-md focus:ring-2 focus:ring-brand-accent focus:outline-none text-sm"
+                                    >
+                                        <option value="" disabled>Add criterion...</option>
+                                        {availableKeys.map(k => <option key={k.key} value={k.key}>{k.label}</option>)}
+                                    </select>
+                                    <button onClick={handleAddPriority} className="px-4 py-2 text-sm font-semibold bg-brand-accent hover:bg-brand-accent-hover rounded-md transition-colors whitespace-nowrap">Add</button>
+                                </div>
+                            )}
+                        </div>
                     </div>
                     
                     {/* Filtering Sections */}
