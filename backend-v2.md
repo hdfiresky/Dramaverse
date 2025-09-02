@@ -467,15 +467,45 @@ app.get('/api/dramas', apiLimiter, (req, res) => {
     } else {
         const sortPriorities = JSON.parse(sort);
         if (sortPriorities.length > 0 && result.length > 0) {
-            // Weighted sort logic here... (remains the same)
+            const stats = { rating: { min: Infinity, max: -Infinity }, popularity_rank: { min: Infinity, max: -Infinity }, watchers: { min: Infinity, max: -Infinity }, aired_date: { min: Infinity, max: -Infinity }};
+            result.forEach(d => {
+                stats.rating.min = Math.min(stats.rating.min, d.rating); stats.rating.max = Math.max(stats.rating.max, d.rating);
+                stats.popularity_rank.min = Math.min(stats.popularity_rank.min, d.popularity_rank); stats.popularity_rank.max = Math.max(stats.popularity_rank.max, d.popularity_rank);
+                stats.watchers.min = Math.min(stats.watchers.min, d.watchers); stats.watchers.max = Math.max(stats.watchers.max, d.watchers);
+                const dateTimestamp = new Date(d.aired_date.split(' - ')[0]).getTime();
+                if (!isNaN(dateTimestamp)) { stats.aired_date.min = Math.min(stats.aired_date.min, dateTimestamp); stats.aired_date.max = Math.max(stats.aired_date.max, dateTimestamp); }
+            });
+            const higherIsBetterKeys = ['rating', 'watchers', 'aired_date'];
+            const scoredDramas = result.map(d => {
+                let score = 0; const maxWeight = sortPriorities.length;
+                sortPriorities.forEach((p, index) => {
+                    const { key, order } = p; const weight = maxWeight - index; const keyStats = stats[key]; const range = keyStats.max - keyStats.min; if (range === 0) return;
+                    let value = key === 'aired_date' ? (new Date(d.aired_date.split(' - ')[0]).getTime() || keyStats.min) : d[key];
+                    let normalized = (value - keyStats.min) / range;
+                    if (!higherIsBetterKeys.includes(key)) { normalized = 1 - normalized; }
+                    if (order === 'asc') { normalized = 1 - normalized; }
+                    score += normalized * weight;
+                });
+                return { ...d, score };
+            });
+            scoredDramas.sort((a, b) => { if (b.score !== a.score) { return b.score - a.score; } return a.title.localeCompare(b.title); });
+            result = scoredDramas;
         } else {
             result.sort((a,b) => a.popularity_rank - b.popularity_rank);
         }
     }
+    
+    const totalItems = result.length;
+    const pageNum = parseInt(page);
+    const limitNum = parseInt(limit);
+    const startIndex = (pageNum - 1) * limitNum;
+    const paginatedItems = result.slice(startIndex, startIndex + limitNum);
 
     res.json({
-        totalItems: result.length,
-        dramas: result.slice((parseInt(page) - 1) * parseInt(limit), parseInt(page) * parseInt(limit)).map(({ genresSet, tagsSet, castSet, ...rest }) => rest),
+        totalItems,
+        dramas: paginatedItems.map(({ genresSet, tagsSet, castSet, score, ...rest }) => rest),
+        currentPage: pageNum,
+        totalPages: Math.ceil(totalItems / limitNum)
     });
 });
 
