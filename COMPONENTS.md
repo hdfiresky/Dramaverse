@@ -4,10 +4,10 @@ This document provides an overview of the React components used in the Dramavers
 
 ## Component Hierarchy
 
-The application follows a logical component hierarchy, with `App.tsx` serving as the root container.
+The application follows a logical component hierarchy, with `App.tsx` serving as the root container. `App.tsx` uses the `useRouter` hook to derive the application's state from the URL and passes this state down to its children.
 
 ` ` `
-- App.tsx
+- App.tsx (manages state via `useRouter`, `useDramas`, `useAuth`)
   - Header.tsx
   - FilterSidebar.tsx
     - FilterSection.tsx
@@ -18,11 +18,18 @@ The application follows a logical component hierarchy, with `App.tsx` serving as
     - Pagination.tsx
   - MyListPage.tsx
     - DramaCard.tsx
+  - AllReviewsPage.tsx
+  - RecommendationsPage.tsx
+  - AdminPanel.tsx
+  - BottomNavBar.tsx
   - AuthModal.tsx
+  - ChangePasswordModal.tsx
+  - ConflictResolutionModal.tsx
   - DramaDetailModal.tsx
     - (RecommendationCard)
   - CastDetailModal.tsx
     - DramaCard.tsx
+  - EpisodeReviewsModal.tsx
   - Skeletons.tsx
   - Icons.tsx (Used throughout)
 ` ` `
@@ -32,62 +39,53 @@ The application follows a logical component hierarchy, with `App.tsx` serving as
 ### Main Layout & Pages
 
 -   **`App.tsx`**
-    -   **Role**: The main application container. It doesn't render much UI itself but orchestrates all the custom hooks and passes state and handlers down to child components.
-    -   **Key Logic**: Manages which main view (`HomePage` or `MyListPage`) and which modals are currently displayed.
+    -   **Role**: The main application container. It orchestrates all custom hooks, derives the application's state from the current URL, and renders the appropriate view and modals.
+    -   **Key Logic**: Contains all handler functions that trigger navigation and state changes by updating the URL.
 
 -   **`HomePage.tsx`**
     -   **Role**: Renders the main discovery page, including the search bar, filter controls, drama grid, and pagination.
-    -   **Key Props**: `dramas`, `isLoading`, `totalDramas`, `currentPage`, `onPageChange`, `onSearchChange`, `onSelectDrama`.
+    -   **Key Props**: Receives all its data and state (dramas, currentPage, etc.) from `App.tsx`, which is derived from the URL.
 
 -   **`MyListPage.tsx`**
-    -   **Role**: Renders the personalized user lists in a tabbed interface for logged-in users.
-    -   **Key Props**: `allDramas`, `userData`, `onSelectDrama`, `onToggleFavorite`.
+    -   **Role**: Renders the personalized user lists for logged-in users. Its visibility is controlled by the URL path.
+    -   **Key Props**: `userData`, `onSelectDrama`.
 
 ### Core UI Elements
 
 -   **`Header.tsx`**
-    -   **Role**: The sticky top navigation bar. Displays the app title, navigation links, and user login/logout controls.
-    -   **Key Props**: `currentUser`, `onGoHome`, `onGoToMyList`, `onLoginClick`, `onLogout`.
+    -   **Role**: The sticky top navigation bar. Navigation clicks trigger URL changes.
+    -   **Key Props**: `currentUser`, `onGoTo...` navigation handlers.
 
 -   **`DramaCard.tsx`**
-    -   **Role**: The primary visual representation of a drama in a grid. Displays the cover image, title, rating, and user action buttons (favorite, plan to watch).
-    -   **Key Props**: `drama`, `userData`, `onSelect`, `onToggleFavorite`.
+    -   **Role**: The primary visual representation of a drama in a grid. Clicking it opens the detail modal by updating the URL.
+    -   **Key Props**: `drama`, `userData`, `onSelect`.
 
 -   **`Pagination.tsx`**
-    -   **Role**: Provides page navigation controls (Previous, Next, page numbers) for paginated content.
+    -   **Role**: Provides page navigation controls. Page clicks update the `page` query parameter in the URL.
     -   **Key Props**: `currentPage`, `totalItems`, `itemsPerPage`, `onPageChange`.
 
 ### Filtering & Sorting
 
 -   **`FilterSidebar.tsx`**
-    -   **Role**: A slide-in panel containing all advanced filtering and sorting controls.
-    -   **Key Props**: `isOpen`, `onClose`, `metadata`, `filters`, `onFiltersChange`, `sortPriorities`, `onSortPrioritiesChange`.
-
--   **`FilterSection.tsx`**
-    -   **Role**: A reusable component within the `FilterSidebar` for a single filter category (e.g., Genres, Tags). Includes search and include/exclude functionality.
-    -   **Key Props**: `title`, `items`, `included`, `excluded`, `onIncludeToggle`, `onExcludeToggle`.
-
--   **`ActiveFiltersDisplay.tsx`**
-    -   **Role**: Displays currently active filters as a series of removable badges above the main drama grid.
-    -   **Key Props**: `filters`, `onFiltersChange`.
+    -   **Role**: A slide-in panel containing all advanced filtering and sorting controls. Changes here update the URL's query parameters.
+    -   **Key Props**: `isOpen`, `onClose`, `metadata`, `filters`, `onFiltersChange`.
 
 ### Modals
 
-All modals are rendered using React Portals into `<div id="modal-root">`.
+All modals are rendered using React Portals and their visibility is controlled by query parameters in the URL.
 
 -   **`AuthModal.tsx`**
     -   **Role**: A modal form for user login and registration.
-    -   **Key Props**: `onClose`, `onLogin`, `onRegister`.
 
 -   **`DramaDetailModal.tsx`**
-    -   **Role**: A comprehensive modal that displays all information about a single drama, including its cast, description, and recommendation engines.
-    -   **Key Props**: `drama`, `allDramas`, `onClose`, `userData`, `onSetStatus`, `onSelectActor`.
+    -   **Role**: A comprehensive modal that displays all information about a single drama.
+    -   **Key Props**: `drama`, `onClose`, `onSelectActor`.
 
 -   **`CastDetailModal.tsx`**
     -   **Role**: A modal that displays all dramas in the library featuring a specific actor.
-    -   **Key Props**: `actorName`, `allDramas`, `onClose`, `onSelectDrama`.
+    -   **Key Props**: `actorName`, `onClose`, `onSelectDrama`.
 
 ### Utility
 
 -   **`Icons.tsx`**
-    -   **Role**: A centralized collection of all SVG icons used in the application, exported as React components. This keeps UI components cleaner and makes icons easy to manage.
+    -   **Role**: A centralized collection of all SVG icons used in the application.

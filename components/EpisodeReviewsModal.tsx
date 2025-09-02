@@ -17,8 +17,8 @@ import {
 } from './Icons';
 
 interface EpisodeReviewsModalProps {
-    /** The drama to show reviews for. If null, the modal is hidden. */
-    drama: Drama;
+    /** The drama to show reviews for. Can be null if data is loading. */
+    drama: Drama | null | undefined;
     /** The current user's data to retrieve existing reviews from. */
     userData: UserData;
     /** Callback to close all modals. */
@@ -47,6 +47,16 @@ export const EpisodeReviewsModal: React.FC < EpisodeReviewsModalProps > = ({
     onSetEpisodeReview,
     showBackButton = false
 }) => {
+    // If drama data isn't loaded yet, show a loading state.
+    if (!drama) {
+        return ReactDOM.createPortal(
+            <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center">
+                <div className="w-16 h-16 border-4 border-dashed rounded-full animate-spin border-brand-accent"></div>
+            </div>,
+             document.getElementById('modal-root')!
+        );
+    }
+    
     // Generate an array of episode numbers from 1 to the total number of episodes.
     const episodes = Array.from({
         length: drama.episodes

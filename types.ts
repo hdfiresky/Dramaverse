@@ -206,9 +206,10 @@ export interface ConflictData {
 /**
  * Represents an item in the modal navigation stack.
  * Used to manage the history of opened modals.
+ * We store identifiers (like dramaUrl) instead of full objects to keep URLs clean.
  */
 export type ModalStackItem = 
-  { type: 'drama'; drama: Drama } | 
+  { type: 'drama'; dramaUrl: string } | 
   { type: 'cast'; actorName: string } |
-  { type: 'reviews'; drama: Drama } |
+  { type: 'reviews'; dramaUrl: string } |
   { type: 'conflict'; data: ConflictData };

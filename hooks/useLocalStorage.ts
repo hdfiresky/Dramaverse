@@ -13,24 +13,28 @@ import { useState, useCallback, Dispatch, SetStateAction } from 'react';
  *
  * @template T The type of the value to be stored.
  * @param {string} key The key under which the value is stored in localStorage.
- * @param {T} initialValue The initial value to use if nothing is found in localStorage or if an error occurs.
+ * @param {T | (() => T)} initialValue The initial value to use if nothing is found in localStorage or if an error occurs. Can be a value or a function to compute it lazily.
  * @returns {[T, React.Dispatch<React.SetStateAction<T>>]} A stateful value, and a function to update it, identical to the `useState` hook signature.
  */
-// FIX: Changed React.Dispatch and React.SetStateAction to be imported directly.
-export const useLocalStorage = <T,>(key: string, initialValue: T): [T, Dispatch<SetStateAction<T>>] => {
+export const useLocalStorage = <T,>(key: string, initialValue: T | (() => T)): [T, Dispatch<SetStateAction<T>>] => {
     // Pass a lazy initializer function to useState. This function will only be
     // executed once on the initial render, improving performance.
     const [storedValue, setStoredValue] = useState<T>(() => {
         try {
             // Attempt to retrieve the value from local storage using the provided key.
             const item = window.localStorage.getItem(key);
-            // Parse the stored JSON. If no item exists (item is null), return the initial value.
-            return item ? JSON.parse(item) : initialValue;
+            // If an item exists, parse it. Otherwise, compute the initial value.
+            if (item !== null) {
+                return JSON.parse(item);
+            }
         } catch (error) {
-            // If any error occurs during parsing (e.g., corrupted data), log it and default to the initial value.
+            // If any error occurs during parsing (e.g., corrupted data), log it.
             console.error(`Error reading localStorage key “${key}”:`, error);
-            return initialValue;
         }
+
+        // Return initial value if no item found or if there was an error.
+        // If initialValue is a function, call it to get the value.
+        return initialValue instanceof Function ? initialValue() : initialValue;
     });
 
     /**

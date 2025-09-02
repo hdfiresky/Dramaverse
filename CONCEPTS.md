@@ -2,55 +2,49 @@
 
 This document explains the key architectural patterns and programming concepts used in the Dramaverse application. It's intended to help new developers understand the "why" behind the code structure.
 
-## 1. Hook-Driven Logic & State Management
+## 1. URL-Driven Architecture & Routing
 
-The application's architecture is centered around **React Hooks**. Instead of placing all logic within components, we abstract it into reusable, self-contained custom hooks. This promotes separation of concerns, making components primarily responsible for rendering UI, while the hooks manage state and business logic.
+The application's architecture is now centered around the **browser URL as the single source of truth**. Instead of managing navigation and view state internally, all significant state (the current page, active filters, open modals) is encoded into the URL. This provides a robust foundation for a modern single-page application.
 
-The main `App.tsx` component acts as an **orchestrator**. It initializes all the major hooks and passes down the state and handler functions they provide to the rest of the component tree as props.
+### Key Custom Hooks for Architecture:
 
-### Key Custom Hooks:
+-   **`useRouter`**: The new heart of navigation and state management.
+    -   **Responsibility**: It parses the current `window.location` into a clean `location` object (`{ pathname, query }`). It listens for browser back/forward button clicks (the `popstate` event) and updates its state accordingly, triggering a re-render. It also provides a `navigate` function that uses the HTML5 History API (`pushState`/`replaceState`) to update the URL without a full page reload.
+    -   **Benefit**: This hook makes the entire application URL-aware, enabling deep linking, refresh persistence, and predictable browser history behavior.
 
--   **`useDramas`**: The heart of data management.
-    -   **Responsibility**: Fetches the master `dramas.json` file, manages loading/error states, and performs all filtering and sorting logic.
-    -   **Performance**: It uses `useMemo` extensively to prevent costly re-calculations. The filtered and sorted list of dramas is only re-computed when the source data, filters, search term, or sort priorities change.
+-   **`useDramas`**: The core of data management.
+    -   **Responsibility**: Fetches the master `dramas.json` file and performs all filtering and sorting logic.
+    -   **URL-Driven**: It no longer receives state directly from `useState` hooks in `App.tsx`. Instead, it receives props (like filters and the current page) that have been parsed from the URL by the `useRouter` hook.
 
 -   **`useAuth`**: Handles all user-related functionality.
-    -   **Responsibility**: Manages the current user's session, provides `login`, `logout`, and `register` functions, and handles all modifications to a user's personal data (favorites, statuses).
-    -   **Persistence**: It uses the `useLocalStorage` hook to persist user accounts and session information across browser reloads. User-specific data is stored under a unique key (`dramaverse_userdata_{username}`).
+    -   **Responsibility**: Manages the current user's session, provides `login`, `logout`, and `register` functions, and handles all modifications to a user's personal data.
+    -   **Persistence**: It uses the `useLocalStorage` hook for frontend-only mode data persistence.
 
--   **`useUIState`**: Manages the state of the UI itself.
-    -   **Responsibility**: Tracks which view is active (`home` or `my-list`), which modals are open (`Auth`, `DramaDetail`, `CastDetail`), and the current pagination page.
-    -   **Separation**: This cleanly separates the volatile state of the UI (e.g., a modal being open) from the application's core data state (e.g., the list of dramas).
+## 2. Unidirectional Data Flow (Driven by the URL)
 
--   **`useLocalStorage`**: A generic utility hook.
-    -   **Responsibility**: Provides a simple `useState`-like interface for any piece of state that needs to be persisted in the browser's `localStorage`. It handles the serialization (`JSON.stringify`) and deserialization (`JSON.parse`) automatically.
+The application follows a strict unidirectional data flow, with the URL at the top.
 
--   **`useDebounce`**: A performance optimization hook.
-    -   **Responsibility**: Delays updating a value until a certain amount of time has passed without it changing. This is used on the search input to prevent re-filtering the drama list on every single keystroke, waiting instead until the user has stopped typing.
+1.  **URL is the State**: The `useRouter` hook reads the URL.
+2.  **State is Derived**: In `App.tsx`, the `location` object from the router is used to derive all application state (the active view, filters, modal stack, etc.) using `useMemo` for performance.
+3.  **Data flows down**: This derived state is passed down to child components as props.
+4.  **Actions flow up to change the URL**: When a user interacts with a component (e.g., clicks a filter), the component calls a handler function passed down as a prop. This handler (which lives in `App.tsx`) constructs a new URL and calls the router's `navigate` function.
+5.  **Router triggers re-render**: The `navigate` function updates the browser's URL and updates the router's internal state, causing a re-render. The new state is then derived from the new URL, and the cycle repeats.
 
-## 2. Unidirectional Data Flow
+This makes the application's state changes predictable and easy to debug by simply looking at the URL.
 
-The application follows React's standard unidirectional data flow model.
+## 3. Modals via React Portals and URL State
 
-1.  **State lives high up**: State is managed in the custom hooks initialized in `App.tsx`.
-2.  **Data flows down**: State values (like `filteredAndSortedDramas` or `currentUser`) are passed down to child components as props.
-3.  **Actions flow up**: When a user interacts with a component (e.g., clicks a "Favorite" button), the component calls a handler function (e.g., `onToggleFavorite`) that was passed down as a prop. This handler function, which lives in `App.tsx` and originates from a hook, is the only thing that can update the state.
-4.  **Re-render**: The state update triggers a re-render, and the new state flows back down the component tree.
+Modals are now part of the URL state, typically stored in a query parameter (e.g., `?modal_stack=...`).
 
-This makes the application predictable and easier to debug.
-
-## 3. Modals via React Portals
-
-All modals (`AuthModal`, `DramaDetailModal`, etc.) are rendered using `ReactDOM.createPortal`.
-
--   **Why?**: A portal renders its children into a different part of the DOM tree, outside of the main parent component. We use a dedicated `<div id="modal-root"></div>` in `index.html` for this.
--   **Benefit**: This solves common CSS problems with modals, such as `z-index` stacking conflicts and `overflow: hidden` on parent containers. It ensures the modal is always on top of the rest of the application content, as intended.
+-   **URL State**: When a modal is opened, its type and necessary data (like a drama's ID) are added to the `modal_stack` query parameter in the URL.
+-   **React Portals**: The modal components are still rendered using `ReactDOM.createPortal` into a dedicated `<div id="modal-root"></div>`. This solves CSS `z-index` and stacking issues by rendering the modal outside the main component hierarchy.
+-   **Benefit**: This combination means modals are persistent on refresh, can be deep-linked, and work correctly with the browser's back button.
 
 ## 4. Client-Side Processing
 
 All complex computations are performed on the client-side after the initial data load. This includes:
--   Filtering the drama list based on multiple criteria.
+-   Filtering the drama list based on criteria from the URL.
 -   Calculating weighted scores for sorting.
 -   Calculating similarity scores for the recommendation engine.
 
-This approach simplifies the application by not requiring a backend server, but it relies on the user's browser having sufficient processing power. The use of `useMemo` is critical to ensure these computations are only run when absolutely necessary, maintaining a smooth user experience.
+The use of `useMemo` is critical to ensure these computations are only run when the relevant parts of the URL change, maintaining a smooth user experience.

@@ -13,8 +13,8 @@ import { BACKEND_MODE, API_BASE_URL } from '../config';
 import { RecommendationCardSkeleton } from './Skeletons';
 
 interface DramaDetailModalProps {
-    /** The drama object to display details for. */
-    drama: Drama;
+    /** The drama object to display details for. Can be null if data is loading. */
+    drama: Drama | null | undefined;
     /** Callback to close all modals in the stack. */
     onCloseAll: () => void;
     /** Callback to pop the current modal from the stack (go back). */
@@ -32,17 +32,8 @@ interface DramaDetailModalProps {
     /** The current logged-in user, to conditionally show user-specific actions. */
     currentUser: User | null;
     /** Callback to open the episode reviews modal for this drama. */
-    onOpenReviews: () => void;
+    onOpenReviews: (drama: Drama) => void;
 }
-
-const CRITERIA_OPTIONS: { id: 'genres' | 'tags' | 'description' | 'cast' | 'rating' | 'rating_count', label: string }[] = [
-    { id: 'genres', label: 'Genres' },
-    { id: 'tags', label: 'Tags' },
-    { id: 'description', label: 'Description' },
-    { id: 'cast', label: 'Cast' },
-    { id: 'rating', label: 'Rating' },
-    { id: 'rating_count', label: 'Rating Count' },
-];
 
 /**
  * A helper component to render a drama card within the recommendation section.
@@ -72,6 +63,13 @@ const RecommendationCard: React.FC<{
     </div>
 );
 
+// FIX: Define CRITERIA_OPTIONS for the similarity engine.
+const CRITERIA_OPTIONS = [
+    { id: 'genres', label: 'Genres' },
+    { id: 'tags', label: 'Tags' },
+    { id: 'cast', label: 'Cast' },
+    { id: 'rating', label: 'Rating' },
+];
 
 export const DramaDetailModal: React.FC<DramaDetailModalProps> = ({ drama, onCloseAll, onPopModal, onSelectDrama, onSetQuickFilter, onSelectActor, filters, showBackButton, currentUser, onOpenReviews }) => {
     const [activeTab, setActiveTab] = useState<'curated' | 'similarity'>('curated');
@@ -158,134 +156,142 @@ export const DramaDetailModal: React.FC<DramaDetailModalProps> = ({ drama, onClo
         </div>
     )) : [], [drama, onSelectActor]);
 
+    // If drama data hasn't been loaded yet (e.g., on a hard refresh), don't render anything yet.
+    if (!drama) {
+        return ReactDOM.createPortal(
+            <div className="fixed inset-0 bg-black/70 z-40 flex items-center justify-center">
+                <div className="w-16 h-16 border-4 border-dashed rounded-full animate-spin border-brand-accent"></div>
+            </div>,
+             document.getElementById('modal-root')!
+        );
+    }
+
     return ReactDOM.createPortal(
-        <div className={`fixed inset-0 bg-black/70 z-40 flex items-center justify-center transition-opacity duration-300 ${drama ? 'opacity-100' : 'opacity-0 pointer-events-none'}`} onClick={onCloseAll}>
-            {drama && (
-                <div className="bg-brand-secondary rounded-lg w-full max-w-4xl h-[90vh] flex flex-col animate-fade-in" onClick={e => e.stopPropagation()}>
-                    <header className="flex-shrink-0 p-4 flex justify-between items-center">
-                         {showBackButton ? (
-                            <button onClick={onPopModal} className="p-2 rounded-full hover:bg-brand-primary" aria-label="Go back">
-                                <ChevronLeftIcon className="w-5 h-5"/>
-                            </button>
-                        ) : (
-                            <div /> // Spacer to keep close button on the right
-                        )}
-                        <button onClick={onCloseAll} className="p-2 rounded-full hover:bg-brand-primary" aria-label="Close details"><CloseIcon className="w-6 h-6"/></button>
-                    </header>
-                    <div ref={scrollContainerRef} className="flex-1 overflow-y-auto px-8 pb-8 custom-scrollbar">
-                        <section aria-labelledby="drama-title" className="flex flex-col lg:flex-row gap-8">
-                            <div className="lg:w-1/3 flex-shrink-0">
-                                <img src={drama.cover_image} alt={drama.title} className="rounded-lg shadow-xl w-full" />
+        <div className="fixed inset-0 bg-black/70 z-40 flex items-center justify-center" onClick={onCloseAll}>
+            <div className="bg-brand-secondary rounded-lg w-full max-w-4xl h-[90vh] flex flex-col animate-fade-in" onClick={e => e.stopPropagation()}>
+                <header className="flex-shrink-0 p-4 flex justify-between items-center">
+                     {showBackButton ? (
+                        <button onClick={onPopModal} className="p-2 rounded-full hover:bg-brand-primary" aria-label="Go back">
+                            <ChevronLeftIcon className="w-5 h-5"/>
+                        </button>
+                    ) : (
+                        <div /> // Spacer to keep close button on the right
+                    )}
+                    <button onClick={onCloseAll} className="p-2 rounded-full hover:bg-brand-primary" aria-label="Close details"><CloseIcon className="w-6 h-6"/></button>
+                </header>
+                <div ref={scrollContainerRef} className="flex-1 overflow-y-auto px-8 pb-8 custom-scrollbar">
+                    <section aria-labelledby="drama-title" className="flex flex-col lg:flex-row gap-8">
+                        <div className="lg:w-1/3 flex-shrink-0">
+                            <img src={drama.cover_image} alt={drama.title} className="rounded-lg shadow-xl w-full" />
+                        </div>
+                        <div className="lg:w-2/3">
+                            <h1 id="drama-title" className="text-3xl lg:text-4xl font-bold">{drama.title}</h1>
+                            <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-2 mt-3 mb-4 text-sm text-brand-text-secondary">
+                                <div className="flex items-center gap-1 font-medium">
+                                    <StarIcon className="w-5 h-5 text-yellow-400 flex-shrink-0" />
+                                    <span className="text-brand-text-primary">{drama.rating.toFixed(1)}</span>
+                                    <span className="text-xs">({drama.rating_count.toLocaleString()})</span>
+                                </div>
+                                <div><strong className="text-brand-text-primary">Popularity:</strong> #{drama.popularity_rank}</div>
+                                <div><strong className="text-brand-text-primary">Country:</strong> {drama.country}</div>
+                                <div><strong className="text-brand-text-primary">Episodes:</strong> {drama.episodes}</div>
+                                <div className="sm:col-span-2"><strong className="text-brand-text-primary">Duration:</strong> {drama.duration}</div>
+                                <div className="col-span-2 sm:col-span-3"><strong className="text-brand-text-primary">Aired:</strong> {drama.aired_date}</div>
                             </div>
-                            <div className="lg:w-2/3">
-                                <h1 id="drama-title" className="text-3xl lg:text-4xl font-bold">{drama.title}</h1>
-                                <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-2 mt-3 mb-4 text-sm text-brand-text-secondary">
-                                    <div className="flex items-center gap-1 font-medium">
-                                        <StarIcon className="w-5 h-5 text-yellow-400 flex-shrink-0" />
-                                        <span className="text-brand-text-primary">{drama.rating.toFixed(1)}</span>
-                                        <span className="text-xs">({drama.rating_count.toLocaleString()})</span>
-                                    </div>
-                                    <div><strong className="text-brand-text-primary">Popularity:</strong> #{drama.popularity_rank}</div>
-                                    <div><strong className="text-brand-text-primary">Country:</strong> {drama.country}</div>
-                                    <div><strong className="text-brand-text-primary">Episodes:</strong> {drama.episodes}</div>
-                                    <div className="sm:col-span-2"><strong className="text-brand-text-primary">Duration:</strong> {drama.duration}</div>
-                                    <div className="col-span-2 sm:col-span-3"><strong className="text-brand-text-primary">Aired:</strong> {drama.aired_date}</div>
+                            <div className="mb-4">
+                                <h4 className="font-semibold text-brand-text-primary mb-2">Genres</h4>
+                                <div className="flex flex-wrap gap-2">{genrePills}</div>
+                            </div>
+                            <div className="mb-6">
+                                <h4 className="font-semibold text-brand-text-primary mb-2">Tags</h4>
+                                <div className="flex flex-wrap gap-2">{tagPills}</div>
+                            </div>
+                            <p className="text-brand-text-secondary leading-relaxed mb-6">{drama.description}</p>
+                            
+                            {currentUser && (
+                                <div className="mt-6">
+                                    <button
+                                        onClick={() => onOpenReviews(drama)}
+                                        className="w-full text-center py-3 px-4 bg-brand-primary hover:bg-brand-accent transition-colors rounded-lg font-semibold flex items-center justify-center gap-2"
+                                    >
+                                        <PencilSquareIcon className="w-5 h-5" />
+                                        <span>Edit Episode Reviews</span>
+                                    </button>
                                 </div>
-                                <div className="mb-4">
-                                    <h4 className="font-semibold text-brand-text-primary mb-2">Genres</h4>
-                                    <div className="flex flex-wrap gap-2">{genrePills}</div>
-                                </div>
-                                <div className="mb-6">
-                                    <h4 className="font-semibold text-brand-text-primary mb-2">Tags</h4>
-                                    <div className="flex flex-wrap gap-2">{tagPills}</div>
-                                </div>
-                                <p className="text-brand-text-secondary leading-relaxed mb-6">{drama.description}</p>
-                                
-                                {currentUser && (
-                                    <div className="mt-6">
-                                        <button
-                                            onClick={onOpenReviews}
-                                            className="w-full text-center py-3 px-4 bg-brand-primary hover:bg-brand-accent transition-colors rounded-lg font-semibold flex items-center justify-center gap-2"
-                                        >
-                                            <PencilSquareIcon className="w-5 h-5" />
-                                            <span>Edit Episode Reviews</span>
-                                        </button>
+                            )}
+                        </div>
+                    </section>
+                    
+                    {drama.cast.length > 0 && (
+                        <section className="mt-8">
+                            <h2 className="text-2xl font-bold mb-4">Cast</h2>
+                            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">{castList}</div>
+                        </section>
+                    )}
+
+                    <section className="mt-12">
+                        <h2 className="text-2xl font-bold mb-4">Recommendations</h2>
+                        <div className="border-b border-gray-700 mb-6">
+                            <nav className="-mb-px flex space-x-6" role="tablist" aria-label="Recommendation type">
+                                <button role="tab" aria-selected={activeTab === 'curated'} onClick={() => setActiveTab('curated')} className={`whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm transition-colors ${activeTab === 'curated' ? 'border-brand-accent text-brand-accent' : 'border-transparent text-gray-400 hover:text-gray-200 hover:border-gray-500'}`}>Curated</button>
+                                <button role="tab" aria-selected={activeTab === 'similarity'} onClick={() => setActiveTab('similarity')} className={`whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm transition-colors ${activeTab === 'similarity' ? 'border-brand-accent text-brand-accent' : 'border-transparent text-gray-400 hover:text-gray-200 hover:border-gray-500'}`}>Similarity Engine</button>
+                            </nav>
+                        </div>
+
+                        {isLoadingRecs ? (
+                            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+                                {Array.from({ length: 5 }).map((_, index) => (
+                                    <RecommendationCardSkeleton key={index} />
+                                ))}
+                            </div>
+                        ) : recsError ? (
+                            <p className="text-center text-red-400 py-10">{recsError}</p>
+                        ) : (
+                            <>
+                                {activeTab === 'curated' && (
+                                    <div className="animate-fade-in" role="tabpanel">
+                                        {recommendations.length > 0 ? (
+                                            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+                                                {recommendations.map((rec: Drama) => (
+                                                    <RecommendationCard key={rec.url} drama={rec} onClick={onSelectDrama} />
+                                                ))}
+                                            </div>
+                                        ) : (
+                                            <p className="text-center text-brand-text-secondary py-10">No curated recommendations available for this drama.</p>
+                                        )}
                                     </div>
                                 )}
-                            </div>
-                        </section>
-                        
-                        {drama.cast.length > 0 && (
-                            <section className="mt-8">
-                                <h2 className="text-2xl font-bold mb-4">Cast</h2>
-                                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">{castList}</div>
-                            </section>
-                        )}
 
-                        <section className="mt-12">
-                            <h2 className="text-2xl font-bold mb-4">Recommendations</h2>
-                            <div className="border-b border-gray-700 mb-6">
-                                <nav className="-mb-px flex space-x-6" role="tablist" aria-label="Recommendation type">
-                                    <button role="tab" aria-selected={activeTab === 'curated'} onClick={() => setActiveTab('curated')} className={`whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm transition-colors ${activeTab === 'curated' ? 'border-brand-accent text-brand-accent' : 'border-transparent text-gray-400 hover:text-gray-200 hover:border-gray-500'}`}>Curated</button>
-                                    <button role="tab" aria-selected={activeTab === 'similarity'} onClick={() => setActiveTab('similarity')} className={`whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm transition-colors ${activeTab === 'similarity' ? 'border-brand-accent text-brand-accent' : 'border-transparent text-gray-400 hover:text-gray-200 hover:border-gray-500'}`}>Similarity Engine</button>
-                                </nav>
-                            </div>
-
-                            {isLoadingRecs ? (
-                                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-                                    {Array.from({ length: 5 }).map((_, index) => (
-                                        <RecommendationCardSkeleton key={index} />
-                                    ))}
-                                </div>
-                            ) : recsError ? (
-                                <p className="text-center text-red-400 py-10">{recsError}</p>
-                            ) : (
-                                <>
-                                    {activeTab === 'curated' && (
-                                        <div className="animate-fade-in" role="tabpanel">
-                                            {recommendations.length > 0 ? (
-                                                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-                                                    {recommendations.map((rec: Drama) => (
-                                                        <RecommendationCard key={rec.url} drama={rec} onClick={onSelectDrama} />
-                                                    ))}
-                                                </div>
-                                            ) : (
-                                                <p className="text-center text-brand-text-secondary py-10">No curated recommendations available for this drama.</p>
-                                            )}
-                                        </div>
-                                    )}
-
-                                    {activeTab === 'similarity' && (
-                                        <div className="animate-fade-in" role="tabpanel">
-                                            <p className="text-sm text-brand-text-secondary mb-4">Select criteria to find dramas with similar attributes. More criteria can yield more precise results.</p>
-                                            <div className="bg-brand-primary p-4 rounded-lg mb-6">
-                                                <div className="flex space-x-2 overflow-x-auto pb-2 -mb-2 custom-scrollbar">
-                                                    {CRITERIA_OPTIONS.map(criterion => (
-                                                        <button key={criterion.id} onClick={() => toggleCriterion(criterion.id)} className={`flex-shrink-0 px-3 py-1.5 text-sm font-medium rounded-full transition-colors ${selectedCriteria.includes(criterion.id) ? 'bg-brand-accent text-white shadow-lg' : 'bg-brand-secondary text-brand-text-secondary hover:bg-gray-700'}`} aria-pressed={selectedCriteria.includes(criterion.id)}>
-                                                            {criterion.label}
-                                                        </button>
-                                                    ))}
-                                                </div>
+                                {activeTab === 'similarity' && (
+                                    <div className="animate-fade-in" role="tabpanel">
+                                        <p className="text-sm text-brand-text-secondary mb-4">Select criteria to find dramas with similar attributes. More criteria can yield more precise results.</p>
+                                        <div className="bg-brand-primary p-4 rounded-lg mb-6">
+                                            <div className="flex space-x-2 overflow-x-auto pb-2 -mb-2 custom-scrollbar">
+                                                {CRITERIA_OPTIONS.map(criterion => (
+                                                    <button key={criterion.id} onClick={() => toggleCriterion(criterion.id)} className={`flex-shrink-0 px-3 py-1.5 text-sm font-medium rounded-full transition-colors ${selectedCriteria.includes(criterion.id) ? 'bg-brand-accent text-white shadow-lg' : 'bg-brand-secondary text-brand-text-secondary hover:bg-gray-700'}`} aria-pressed={selectedCriteria.includes(criterion.id)}>
+                                                        {criterion.label}
+                                                    </button>
+                                                ))}
                                             </div>
-                                            {recommendations.length > 0 ? (
-                                                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-                                                    {recommendations.map(({ drama: rec, score }: any) => (
-                                                        <RecommendationCard key={rec.url} drama={rec} score={score} onClick={onSelectDrama} />
-                                                    ))}
-                                                </div>
-                                            ) : (
-                                                <p className="text-center text-brand-text-secondary py-10">
-                                                    {selectedCriteria.length > 0 ? 'No similar dramas found. Try adjusting your criteria.' : 'Select one or more criteria above to generate recommendations.'}
-                                                </p>
-                                            )}
                                         </div>
-                                    )}
-                                </>
-                            )}
-                        </section>
-                    </div>
+                                        {recommendations.length > 0 ? (
+                                            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+                                                {recommendations.map(({ drama: rec, score }: any) => (
+                                                    <RecommendationCard key={rec.url} drama={rec} score={score} onClick={onSelectDrama} />
+                                                ))}
+                                            </div>
+                                        ) : (
+                                            <p className="text-center text-brand-text-secondary py-10">
+                                                {selectedCriteria.length > 0 ? 'No similar dramas found. Try adjusting your criteria.' : 'Select one or more criteria above to generate recommendations.'}
+                                            </p>
+                                        )}
+                                    </div>
+                                )}
+                            </>
+                        )}
+                    </section>
                 </div>
-            )}
+            </div>
         </div>,
         document.getElementById('modal-root')!
     );

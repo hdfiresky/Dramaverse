@@ -5,17 +5,14 @@
  * connecting the data and logic from hooks to the presentational components.
  */
 import React, { useState, useCallback, useEffect, useMemo } from 'react';
-import { Filters, SortPriority, UserData, UserDramaStatus, Drama } from './types';
+import { Filters, SortPriority, UserData, UserDramaStatus, Drama, ModalStackItem } from './types';
 import { useLocalStorage } from './hooks/useLocalStorage';
-import { useUIState } from './hooks/useUIState';
 import { useAuth } from './hooks/useAuth';
 import { useDramas } from './hooks/useDramas';
 import { useDebounce } from './hooks/useDebounce';
 import { useWindowSize } from './hooks/useWindowSize';
-// FIX: Import LOCAL_STORAGE_KEYS to be used with useLocalStorage hook.
+import { useRouter, ActiveView } from './hooks/useRouter';
 import { BASE_ITEMS_PER_PAGE, LOCAL_STORAGE_KEYS } from './hooks/lib/constants';
-import { BACKEND_MODE } from './config';
-
 
 // Component Imports
 import { Header } from './components/Header';
@@ -35,229 +32,185 @@ import { EpisodeReviewsModal } from './components/EpisodeReviewsModal';
 
 
 export default function App() {
-    // --- STATE MANAGEMENT via Custom Hooks ---
-    // The App component composes various custom hooks to manage different aspects of the application state.
-
-    // `useUIState`: Manages the state of the UI itself, like active views and open modals.
-    // NOTE: This is called first because other hooks depend on it.
-    const {
-        activeView, navigateTo,
-        modalStack, pushModal, popModal, closeAllModals,
-        isAuthModalOpen, openAuthModal, closeAuthModal,
-        isChangePasswordModalOpen, openChangePasswordModal, closeChangePasswordModal,
-        isFilterSidebarOpen, toggleFilterSidebar,
-        currentPage, setCurrentPage,
-        theme, toggleTheme,
-        conflictData, openConflictModal, closeConflictModal,
-    } = useUIState();
-
-    // `useAuth`: Encapsulates all logic related to user authentication and user-specific data.
+    const { location, navigate, updateQuery, activeView, modalStack, theme, toggleTheme } = useRouter();
+    
+    // --- AUTHENTICATION & USER DATA ---
+    const [conflictData, setConflictData] = useState<any>(null);
+    const [isAuthModalOpen, setAuthModalOpen] = useState(false);
+    const [isChangePasswordModalOpen, setChangePasswordModalOpen] = useState(false);
     const {
         currentUser, userData, isAuthLoading,
         login, logout, register,
         toggleFavorite, setDramaStatus, setReviewAndTrackProgress, setEpisodeReview,
-        resolveConflict,
-        changePassword,
-    } = useAuth(closeAuthModal, openConflictModal); // Pass callbacks.
-
-    // `useLocalStorage`: Persists filter and sort settings across browser sessions.
-    const [filters, setFilters] = useLocalStorage<Filters>(LOCAL_STORAGE_KEYS.FILTERS, { genres: [], excludeGenres: [], tags: [], excludeTags: [], countries: [], cast: [], minRating: 0 });
-    const [sortPriorities, setSortPriorities] = useLocalStorage<SortPriority[]>(LOCAL_STORAGE_KEYS.SORT_PRIORITIES, [
-        { key: 'popularity_rank', order: 'desc' },
-        { key: 'rating', order: 'desc' }
-    ]);
+        resolveConflict, changePassword,
+    } = useAuth(() => setAuthModalOpen(false), (data) => setConflictData(data));
     
-    // `useState` and `useDebounce`: Manages the search term with a delay to prevent excessive re-renders.
-    const [searchTerm, setSearchTerm] = useState('');
-    const debouncedSearchTerm = useDebounce(searchTerm, 300); // Debounce search input for 300ms.
+    // --- ROUTE PROTECTION ---
+    useEffect(() => {
+        const protectedViews: ActiveView[] = ['my-list', 'all-reviews', 'recommendations'];
+        const adminViews: ActiveView[] = ['admin'];
 
-    // State to manage the sorting mode. Can be 'weighted' for user-defined sort or 'random'.
-    const [sortMode, setSortMode] = useState<'weighted' | 'random'>('weighted');
-    // A seed value that can be changed to trigger a new randomization.
+        if (!currentUser && protectedViews.includes(activeView)) {
+            console.log(`Redirecting unauthorized user from protected view: ${activeView}`);
+            navigate('/home');
+        }
+        if (!currentUser?.isAdmin && adminViews.includes(activeView)) {
+            console.log(`Redirecting non-admin user from admin view: ${activeView}`);
+            navigate('/home');
+        }
+    }, [activeView, currentUser, navigate]);
+
+    // --- FILTERS & SORT (State derived from URL) ---
+    const query = location.query;
+
+    const filters = useMemo<Filters>(() => ({
+        genres: query.get('genres')?.split(',') || [],
+        excludeGenres: query.get('excludeGenres')?.split(',') || [],
+        tags: query.get('tags')?.split(',') || [],
+        excludeTags: query.get('excludeTags')?.split(',') || [],
+        countries: query.get('countries')?.split(',') || [],
+        cast: query.get('cast')?.split(',') || [],
+        minRating: parseFloat(query.get('minRating') || '0'),
+    }), [query]);
+
+    const sortPriorities = useMemo<SortPriority[]>(() => 
+        query.get('sort') ? JSON.parse(query.get('sort')!) : [{ key: 'popularity_rank', order: 'desc' }, { key: 'rating', order: 'desc' }]
+    , [query]);
+
+    const sortMode = useMemo<'weighted' | 'random'>(() => 
+        (query.get('sortMode') as 'weighted' | 'random') || 'weighted'
+    , [query]);
+    
+    const [searchTerm, setSearchTerm] = useState(query.get('q') || '');
+    const debouncedSearchTerm = useDebounce(searchTerm, 300);
+
+    const currentPage = parseInt(query.get('page') || '1', 10);
+    const [isFilterSidebarOpen, setFilterSidebarOpen] = useState(false);
     const [randomSeed, setRandomSeed] = useState(() => Date.now());
 
-    // Dynamically calculate the number of items per page to ensure full rows.
+    // Effect to sync URL with debounced search term
+    useEffect(() => {
+        updateQuery({ q: debouncedSearchTerm || undefined, page: '1' });
+    }, [debouncedSearchTerm, updateQuery]);
+    
+    // Dynamically calculate items per page for full rows
     const { width } = useWindowSize();
     const itemsPerPage = useMemo(() => {
         const baseCount = BASE_ITEMS_PER_PAGE;
         let columns = 1;
-        if (width >= 1536) columns = 6;      // 2xl from Tailwind config
-        else if (width >= 1280) columns = 5; // xl
-        else if (width >= 1024) columns = 4; // lg
-        else if (width >= 768) columns = 3;  // md
-        else if (width >= 640) columns = 2;  // sm
-        
+        if (width >= 1536) columns = 6;
+        else if (width >= 1280) columns = 5;
+        else if (width >= 1024) columns = 4;
+        else if (width >= 768) columns = 3;
+        else if (width >= 640) columns = 2;
         const remainder = baseCount % columns;
-        if (remainder === 0) return baseCount;
-        
-        // Adjust to fill the last row completely
-        return baseCount + (columns - remainder);
+        return remainder === 0 ? baseCount : baseCount + (columns - remainder);
     }, [width]);
 
-    // `useDramas`: Fetches and processes all drama data, including filtering and sorting.
     const { 
-        displayDramas, 
-        totalDramas, 
-        allDramas, // This will be empty in backend mode, used for frontend-only mode
-        metadata, 
-        isLoading, 
-        dataError,
-        hasInitiallyLoaded
+        displayDramas, totalDramas, allDramas, metadata, isLoading, dataError, hasInitiallyLoaded
     } = useDramas(filters, debouncedSearchTerm, sortPriorities, currentPage, sortMode, randomSeed, itemsPerPage);
+    
+    // --- NAVIGATION & MODAL HANDLERS ---
+    const handleNavigate = (view: ActiveView) => navigate(`/${view}`);
 
-    // Effect to reset pagination to the first page whenever the data set changes due to new filters, search, or sorting.
-    useEffect(() => {
-        setCurrentPage(1);
-    }, [debouncedSearchTerm, filters, sortPriorities, sortMode, randomSeed, setCurrentPage]);
-
-    /** Handles opening a drama modal by pushing it onto the stack. */
     const handleSelectDrama = useCallback((drama: Drama) => {
-        pushModal({ type: 'drama', drama });
-    }, [pushModal]);
-
-    /** Handles opening a cast modal by pushing it onto the stack. */
+        const newItem: ModalStackItem = { type: 'drama', dramaUrl: drama.url };
+        updateQuery({ modal_stack: [...modalStack, newItem] });
+    }, [modalStack, updateQuery]);
+    
     const handleSelectActor = useCallback((actorName: string) => {
-        pushModal({ type: 'cast', actorName });
-    }, [pushModal]);
+        const newItem: ModalStackItem = { type: 'cast', actorName };
+        updateQuery({ modal_stack: [...modalStack, newItem] });
+    }, [modalStack, updateQuery]);
 
-    /** Handles opening the episode reviews modal by pushing it onto the stack. */
     const handleOpenReviews = useCallback((drama: Drama) => {
-        if (currentUser) {
-            pushModal({ type: 'reviews', drama });
-        } else {
-            openAuthModal();
-        }
-    }, [pushModal, currentUser, openAuthModal]);
-    
-    /** Handles changes to the main search input field. */
-    const handleSearchChange = (term: string) => {
-        setSearchTerm(term);
-    };
+        if (!currentUser) return setAuthModalOpen(true);
+        const newItem: ModalStackItem = { type: 'reviews', dramaUrl: drama.url };
+        updateQuery({ modal_stack: [...modalStack, newItem] });
+    }, [modalStack, updateQuery, currentUser]);
 
-    /** Handles updates to the filter state. Wrapped in useCallback for performance. */
+    const popModal = useCallback(() => {
+        updateQuery({ modal_stack: modalStack.slice(0, -1) });
+    }, [modalStack, updateQuery]);
+
+    const closeAllModals = useCallback(() => {
+        updateQuery({ modal_stack: [] });
+    }, [updateQuery]);
+    
+    // --- FILTER & SORT HANDLERS ---
     const handleFiltersChange = useCallback((newFilterValues: Partial<Filters>) => {
-        setFilters(prev => ({...prev, ...newFilterValues}));
-    }, [setFilters]);
-    
-    /**
-     * A wrapper for updating sort priorities.
-     * Any change to the weighted sort automatically switches the mode back to 'weighted'.
-     */
+        const updatedFilters = { ...filters, ...newFilterValues };
+        updateQuery({
+            genres: updatedFilters.genres.length > 0 ? updatedFilters.genres.join(',') : undefined,
+            excludeGenres: updatedFilters.excludeGenres.length > 0 ? updatedFilters.excludeGenres.join(',') : undefined,
+            tags: updatedFilters.tags.length > 0 ? updatedFilters.tags.join(',') : undefined,
+            excludeTags: updatedFilters.excludeTags.length > 0 ? updatedFilters.excludeTags.join(',') : undefined,
+            countries: updatedFilters.countries.length > 0 ? updatedFilters.countries.join(',') : undefined,
+            cast: updatedFilters.cast.length > 0 ? updatedFilters.cast.join(',') : undefined,
+            minRating: updatedFilters.minRating > 0 ? String(updatedFilters.minRating) : undefined,
+            page: '1',
+        }, true);
+    }, [filters, updateQuery]);
+
     const handleSortPrioritiesChange = useCallback((priorities: SortPriority[]) => {
-        setSortPriorities(priorities);
-        setSortMode('weighted');
-    }, [setSortPriorities, setSortMode]);
+        updateQuery({ sort: JSON.stringify(priorities), sortMode: 'weighted', page: '1' }, true);
+    }, [updateQuery]);
 
-    /**
-     * Handles a click on a genre or tag pill, toggling its inclusion in the filters.
-     */
+    const handleSetSortMode = useCallback((mode: 'weighted' | 'random') => {
+        updateQuery({ sortMode: mode, page: '1' }, true);
+    }, [updateQuery]);
+
     const handleSetQuickFilter = useCallback((type: 'genre' | 'tag', value: string) => {
-        setFilters(prev => {
-            const key = type === 'genre' ? 'genres' : 'tags';
-            const excludeKey = type === 'genre' ? 'excludeGenres' : 'excludeTags';
-            const currentValues = prev[key];
-            
-            const newValues = currentValues.includes(value)
-                ? currentValues.filter(v => v !== value)
-                : [...currentValues, value];
-            
-            const newExcludeValues = newValues.length > currentValues.length
-                ? prev[excludeKey].filter(v => v !== value)
-                : prev[excludeKey];
-            
-            return { ...prev, [key]: newValues, [excludeKey]: newExcludeValues };
-        });
-    }, [setFilters]);
-
+        const key = type === 'genre' ? 'genres' : 'tags';
+        const excludeKey = type === 'genre' ? 'excludeGenres' : 'excludeTags';
+        const currentValues = filters[key];
+        const newValues = currentValues.includes(value) ? currentValues.filter(v => v !== value) : [...currentValues, value];
+        const newExcludeValues = newValues.length > currentValues.length ? filters[excludeKey].filter(v => v !== value) : filters[excludeKey];
+        handleFiltersChange({ [key]: newValues, [excludeKey]: newExcludeValues });
+    }, [filters, handleFiltersChange]);
+    
+    // --- AUTH-RELATED HANDLERS ---
     const handleToggleFavorite = useCallback((dramaUrl: string) => {
-        if (!toggleFavorite(dramaUrl)) openAuthModal();
-    }, [toggleFavorite, openAuthModal]);
+        if (!toggleFavorite(dramaUrl)) setAuthModalOpen(true);
+    }, [toggleFavorite]);
     
     const handleSetStatus = useCallback((...args: Parameters<typeof setDramaStatus>) => {
-        if (!setDramaStatus(...args)) openAuthModal();
-    }, [setDramaStatus, openAuthModal]);
+        if (!setDramaStatus(...args)) setAuthModalOpen(true);
+    }, [setDramaStatus]);
     
     const handleSetReviewAndTrackProgress = useCallback((...args: Parameters<typeof setReviewAndTrackProgress>) => {
-        if (!setReviewAndTrackProgress(...args)) openAuthModal();
-    }, [setReviewAndTrackProgress, openAuthModal]);
+        if (!setReviewAndTrackProgress(...args)) setAuthModalOpen(true);
+    }, [setReviewAndTrackProgress]);
     
     const handleSetEpisodeReview = useCallback((...args: Parameters<typeof setEpisodeReview>) => {
-        if (!setEpisodeReview(...args)) openAuthModal();
-    }, [setEpisodeReview, openAuthModal]);
+        if (!setEpisodeReview(...args)) setAuthModalOpen(true);
+    }, [setEpisodeReview]);
 
-    /** Logs the user out and navigates back to the home page. */
     const handleLogout = () => {
         logout();
-        navigateTo('home');
+        navigate('/home');
     };
 
     // --- RENDER LOGIC ---
-    const activeModal = modalStack.length > 0 ? modalStack[modalStack.length - 1] : null;
+    const activeModalData = modalStack.length > 0 ? modalStack[modalStack.length - 1] : null;
 
     const renderActiveView = () => {
+        // Double-check permissions before rendering as a fallback
         switch (activeView) {
             case 'home':
-                return (
-                    <HomePage
-                        dramas={displayDramas}
-                        isLoading={isLoading}
-                        dataError={dataError}
-                        totalDramas={totalDramas}
-                        userData={userData}
-                        filters={filters}
-                        searchTerm={searchTerm}
-                        currentPage={currentPage}
-                        itemsPerPage={itemsPerPage}
-                        isUserLoggedIn={!!currentUser}
-                        hasInitiallyLoaded={hasInitiallyLoaded}
-                        onSelectDrama={handleSelectDrama}
-                        onToggleFavorite={handleToggleFavorite}
-                        onSetStatus={handleSetStatus}
-                        onSearchChange={handleSearchChange}
-                        onPageChange={setCurrentPage}
-                        onOpenFilters={() => toggleFilterSidebar(true)}
-                        onFiltersChange={handleFiltersChange}
-                        onSetReviewAndTrackProgress={handleSetReviewAndTrackProgress}
-                    />
-                );
+                return <HomePage dramas={displayDramas} isLoading={isLoading} dataError={dataError} totalDramas={totalDramas} userData={userData} filters={filters} searchTerm={searchTerm} currentPage={currentPage} itemsPerPage={itemsPerPage} isUserLoggedIn={!!currentUser} hasInitiallyLoaded={hasInitiallyLoaded} onSelectDrama={handleSelectDrama} onToggleFavorite={handleToggleFavorite} onSetStatus={handleSetStatus} onSearchChange={setSearchTerm} onPageChange={(p) => updateQuery({ page: String(p) })} onOpenFilters={() => setFilterSidebarOpen(true)} onFiltersChange={handleFiltersChange} onSetReviewAndTrackProgress={handleSetReviewAndTrackProgress} />;
             case 'my-list':
-                return (
-                    <MyListPage 
-                        allDramas={allDramas} // Kept for frontend-only mode compatibility
-                        userData={userData} 
-                        onSelectDrama={handleSelectDrama} 
-                        onToggleFavorite={handleToggleFavorite}
-                        onSetStatus={handleSetStatus}
-                        onSetReviewAndTrackProgress={handleSetReviewAndTrackProgress}
-                    />
-                );
+                if (currentUser) return <MyListPage allDramas={allDramas} userData={userData} onSelectDrama={handleSelectDrama} onToggleFavorite={handleToggleFavorite} onSetStatus={handleSetStatus} onSetReviewAndTrackProgress={handleSetReviewAndTrackProgress} />;
+                return null;
             case 'all-reviews':
-                return (
-                    <AllReviewsPage
-                        allDramas={allDramas} // Kept for frontend-only mode compatibility
-                        userData={userData}
-                        onSelectDrama={handleSelectDrama}
-                    />
-                );
+                if (currentUser) return <AllReviewsPage allDramas={allDramas} userData={userData} onSelectDrama={handleSelectDrama} />;
+                return null;
             case 'recommendations':
-                 if (currentUser) {
-                    return (
-                        <RecommendationsPage
-                            userData={userData}
-                            onSelectDrama={handleSelectDrama}
-                            onToggleFavorite={handleToggleFavorite}
-                            onSetStatus={handleSetStatus}
-                            onSetReviewAndTrackProgress={handleSetReviewAndTrackProgress}
-                        />
-                    );
-                 }
-                 navigateTo('home');
-                 return null;
+                if (currentUser) return <RecommendationsPage userData={userData} onSelectDrama={handleSelectDrama} onToggleFavorite={handleToggleFavorite} onSetStatus={handleSetStatus} onSetReviewAndTrackProgress={handleSetReviewAndTrackProgress} />;
+                return null;
             case 'admin':
-                 if (currentUser?.isAdmin) {
-                    return <AdminPanel currentUser={currentUser} />;
-                }
-                navigateTo('home');
+                if (currentUser?.isAdmin) return <AdminPanel currentUser={currentUser} />;
                 return null;
             default:
                 return null;
@@ -265,101 +218,31 @@ export default function App() {
     };
     
     if (isAuthLoading) {
-        return (
-            <div className="min-h-screen font-sans flex items-center justify-center bg-brand-primary">
-                 <div className="w-16 h-16 border-4 border-dashed rounded-full animate-spin border-brand-accent"></div>
-            </div>
-        );
+        return <div className="min-h-screen font-sans flex items-center justify-center bg-brand-primary"><div className="w-16 h-16 border-4 border-dashed rounded-full animate-spin border-brand-accent"></div></div>;
     }
+
+    const dramaMap = useMemo(() => new Map(allDramas.map(d => [d.url, d])), [allDramas]);
 
     return (
         <div className="min-h-screen font-sans">
-            <Header 
-                onGoHome={() => navigateTo('home')} 
-                onGoToMyList={() => navigateTo('my-list')}
-                onGoToRecommendations={() => navigateTo('recommendations')}
-                onGoToAllReviews={() => navigateTo('all-reviews')} 
-                onGoToAdminPanel={() => navigateTo('admin')}
-                currentUser={currentUser} 
-                onLoginClick={openAuthModal} 
-                onLogout={handleLogout}
-                onOpenChangePassword={openChangePasswordModal}
-                theme={theme}
-                toggleTheme={toggleTheme}
-            />
+            <Header onGoHome={() => handleNavigate('home')} onGoToMyList={() => handleNavigate('my-list')} onGoToRecommendations={() => handleNavigate('recommendations')} onGoToAllReviews={() => handleNavigate('all-reviews')} onGoToAdminPanel={() => handleNavigate('admin')} currentUser={currentUser} onLoginClick={() => setAuthModalOpen(true)} onLogout={handleLogout} onOpenChangePassword={() => setChangePasswordModalOpen(true)} theme={theme} toggleTheme={toggleTheme} />
+            <FilterSidebar isOpen={isFilterSidebarOpen} onClose={() => setFilterSidebarOpen(false)} metadata={metadata} filters={filters} onFiltersChange={handleFiltersChange} sortPriorities={sortPriorities} onSortPrioritiesChange={handleSortPrioritiesChange} sortMode={sortMode} onSetSortMode={handleSetSortMode} onSetRandomSeed={setRandomSeed} />
+            <main className={`min-w-0 py-8 px-4 sm:px-6 lg:px-8 ${currentUser ? 'pb-24 md:pb-8' : 'pb-8'}`}>{renderActiveView()}</main>
+            <AuthModal isOpen={isAuthModalOpen} onClose={() => setAuthModalOpen(false)} onLogin={login} onRegister={register} />
+            <ChangePasswordModal isOpen={isChangePasswordModalOpen} onClose={() => setChangePasswordModalOpen(false)} onChangePassword={changePassword} />
+            <ConflictResolutionModal isOpen={!!conflictData} data={conflictData} onClose={() => setConflictData(null)} onResolve={resolveConflict} />
             
-             <FilterSidebar 
-                isOpen={isFilterSidebarOpen}
-                onClose={() => toggleFilterSidebar(false)}
-                metadata={metadata} 
-                filters={filters} 
-                onFiltersChange={handleFiltersChange}
-                sortPriorities={sortPriorities}
-                onSortPrioritiesChange={handleSortPrioritiesChange}
-                sortMode={sortMode}
-                onSetSortMode={setSortMode}
-                onSetRandomSeed={setRandomSeed}
-            />
-
-            <main className={`min-w-0 py-8 px-4 sm:px-6 lg:px-8 ${currentUser ? 'pb-24 md:pb-8' : 'pb-8'}`}>
-                {renderActiveView()}
-            </main>
-
-            <AuthModal isOpen={isAuthModalOpen} onClose={closeAuthModal} onLogin={login} onRegister={register} />
-
-            <ChangePasswordModal 
-                isOpen={isChangePasswordModalOpen} 
-                onClose={closeChangePasswordModal} 
-                onChangePassword={changePassword} 
-            />
-
-            <ConflictResolutionModal
-                isOpen={!!conflictData}
-                data={conflictData}
-                onClose={closeConflictModal}
-                onResolve={resolveConflict}
-            />
-            
-            {activeModal?.type === 'drama' && (
-                <DramaDetailModal 
-                    drama={activeModal.drama}
-                    onCloseAll={closeAllModals}
-                    onPopModal={popModal}
-                    onSelectDrama={handleSelectDrama}
-                    onSetQuickFilter={handleSetQuickFilter} 
-                    onSelectActor={handleSelectActor} 
-                    filters={filters}
-                    showBackButton={modalStack.length > 1}
-                    currentUser={currentUser}
-                    onOpenReviews={() => handleOpenReviews(activeModal.drama)}
-                />
+            {activeModalData?.type === 'drama' && (
+                <DramaDetailModal drama={dramaMap.get(activeModalData.dramaUrl)} onCloseAll={closeAllModals} onPopModal={popModal} onSelectDrama={handleSelectDrama} onSetQuickFilter={handleSetQuickFilter} onSelectActor={handleSelectActor} filters={filters} showBackButton={modalStack.length > 1} currentUser={currentUser} onOpenReviews={handleOpenReviews} />
             )}
-            {activeModal?.type === 'cast' && (
-                <CastDetailModal 
-                    actorName={activeModal.actorName} 
-                    onCloseAll={closeAllModals}
-                    onPopModal={popModal}
-                    onSelectDrama={handleSelectDrama} 
-                    userData={userData} 
-                    isUserLoggedIn={!!currentUser}
-                    onToggleFavorite={handleToggleFavorite} 
-                    onSetStatus={handleSetStatus} 
-                    onSetReviewAndTrackProgress={handleSetReviewAndTrackProgress}
-                    showBackButton={modalStack.length > 1}
-                />
+            {activeModalData?.type === 'cast' && (
+                <CastDetailModal actorName={activeModalData.actorName} onCloseAll={closeAllModals} onPopModal={popModal} onSelectDrama={handleSelectDrama} userData={userData} isUserLoggedIn={!!currentUser} onToggleFavorite={handleToggleFavorite} onSetStatus={handleSetStatus} onSetReviewAndTrackProgress={handleSetReviewAndTrackProgress} showBackButton={modalStack.length > 1} />
             )}
-            {activeModal?.type === 'reviews' && (
-                <EpisodeReviewsModal
-                    drama={activeModal.drama}
-                    userData={userData}
-                    onCloseAll={closeAllModals}
-                    onPopModal={popModal}
-                    onSetEpisodeReview={handleSetEpisodeReview}
-                    showBackButton={modalStack.length > 1}
-                />
+            {activeModalData?.type === 'reviews' && (
+                <EpisodeReviewsModal drama={dramaMap.get(activeModalData.dramaUrl)} userData={userData} onCloseAll={closeAllModals} onPopModal={popModal} onSetEpisodeReview={handleSetEpisodeReview} showBackButton={modalStack.length > 1} />
             )}
             
-            {currentUser && <BottomNavBar activeView={activeView} onNavigate={navigateTo} currentUser={currentUser} />}
+            {currentUser && <BottomNavBar activeView={activeView} onNavigate={handleNavigate} currentUser={currentUser} />}
         </div>
     );
 }
