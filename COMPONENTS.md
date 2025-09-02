@@ -23,6 +23,7 @@ The application follows a logical component hierarchy, with `App.tsx` serving as
     - (RecommendationCard)
   - CastDetailModal.tsx
     - DramaCard.tsx
+  - Skeletons.tsx
   - Icons.tsx (Used throughout)
 ` ` `
 

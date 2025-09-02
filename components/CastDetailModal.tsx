@@ -8,6 +8,7 @@ import { Drama, UserData, UserDramaStatus } from '../types';
 import { DramaCard } from './DramaCard';
 import { CloseIcon, ChevronLeftIcon } from './Icons';
 import { BACKEND_MODE, API_BASE_URL } from '../config';
+import { DramaCardSkeleton } from './Skeletons';
 
 interface CastDetailModalProps {
     /** The name of the actor to display dramas for. */
@@ -113,8 +114,10 @@ export const CastDetailModal: React.FC<CastDetailModalProps> = ({
                 </div>
                 <div className="flex-1 overflow-y-auto p-6 custom-scrollbar">
                     {isLoading ? (
-                        <div className="flex justify-center items-center h-full">
-                           <div className="w-12 h-12 border-4 border-dashed rounded-full animate-spin border-brand-accent"></div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+                            {Array.from({ length: 8 }).map((_, index) => (
+                                <DramaCardSkeleton key={index} />
+                            ))}
                         </div>
                     ) : error ? (
                         <p className="text-center text-red-400 py-10">{error}</p>

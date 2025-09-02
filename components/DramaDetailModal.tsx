@@ -10,6 +10,7 @@ import {
     CloseIcon, StarIcon, ChevronLeftIcon, PencilSquareIcon
 } from './Icons';
 import { BACKEND_MODE, API_BASE_URL } from '../config';
+import { RecommendationCardSkeleton } from './Skeletons';
 
 interface DramaDetailModalProps {
     /** The drama object to display details for. */
@@ -232,7 +233,11 @@ export const DramaDetailModal: React.FC<DramaDetailModalProps> = ({ drama, onClo
                             </div>
 
                             {isLoadingRecs ? (
-                                <div className="flex justify-center items-center h-48"><div className="w-10 h-10 border-4 border-dashed rounded-full animate-spin border-brand-accent"></div></div>
+                                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+                                    {Array.from({ length: 5 }).map((_, index) => (
+                                        <RecommendationCardSkeleton key={index} />
+                                    ))}
+                                </div>
                             ) : recsError ? (
                                 <p className="text-center text-red-400 py-10">{recsError}</p>
                             ) : (

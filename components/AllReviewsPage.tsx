@@ -6,6 +6,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { Drama, UserData, EpisodeReview } from '../types';
 import { ChevronRightIcon } from './Icons';
 import { BACKEND_MODE, API_BASE_URL } from '../config';
+import { ReviewedDramaCardSkeleton } from './Skeletons';
 
 
 interface AllReviewsPageProps {
@@ -235,8 +236,10 @@ export const AllReviewsPage: React.FC<AllReviewsPageProps> = ({ allDramas, userD
             </div>
 
             {isLoading ? (
-                 <div className="flex justify-center items-center h-64">
-                    <div className="w-12 h-12 border-4 border-dashed rounded-full animate-spin border-brand-accent"></div>
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    {Array.from({ length: 4 }).map((_, index) => (
+                        <ReviewedDramaCardSkeleton key={index} />
+                    ))}
                 </div>
             ) : sortedDramas.length > 0 ? (
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

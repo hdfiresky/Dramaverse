@@ -6,6 +6,7 @@ import React, { useState, useEffect } from 'react';
 import { Drama, UserData, UserDramaStatus } from '../types';
 import { DramaCard } from './DramaCard';
 import { API_BASE_URL, BACKEND_MODE } from '../config';
+import { RecommendationEngineCardSkeleton } from './Skeletons';
 
 interface RecommendationsPageProps {
     userData: UserData;
@@ -93,8 +94,11 @@ export const RecommendationsPage: React.FC<RecommendationsPageProps> = (props) =
     const renderContent = () => {
         if (isLoading) {
             return (
-                 <div className="flex justify-center items-center h-96">
-                    <div className="w-16 h-16 border-4 border-dashed rounded-full animate-spin border-brand-accent"></div>
+                <div className="grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-4 gap-8">
+                    <RecommendationEngineCardSkeleton />
+                    <RecommendationEngineCardSkeleton />
+                    <RecommendationEngineCardSkeleton />
+                    <RecommendationEngineCardSkeleton />
                 </div>
             );
         }

@@ -8,6 +8,7 @@ import { Drama, UserData, DramaStatus, UserDramaStatus } from '../types';
 import { DramaCard } from './DramaCard';
 import { EyeIcon, BookmarkIcon, CheckCircleIcon, HeartIcon, PauseIcon, XCircleIcon } from './Icons';
 import { BACKEND_MODE, API_BASE_URL } from '../config';
+import { DramaCardSkeleton } from './Skeletons';
 
 interface MyListPageProps {
     /** The complete list of all dramas, used to look up drama details from URLs. Only used in frontend-only mode. */
@@ -213,8 +214,10 @@ export const MyListPage: React.FC<MyListPageProps> = ({ allDramas, userData, onS
             </div>
             
             {isLoading ? (
-                <div className="flex justify-center items-center h-64">
-                    <div className="w-12 h-12 border-4 border-dashed rounded-full animate-spin border-brand-accent"></div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-6">
+                    {Array.from({ length: 6 }).map((_, index) => (
+                        <DramaCardSkeleton key={index} />
+                    ))}
                 </div>
             ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-6">

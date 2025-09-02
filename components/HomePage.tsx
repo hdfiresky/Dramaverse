@@ -9,6 +9,7 @@ import { DramaCard } from './DramaCard';
 import { Pagination } from './Pagination';
 import { FilterIcon } from './Icons';
 import { ActiveFiltersDisplay } from './ActiveFiltersDisplay';
+import { DramaCardSkeleton } from './Skeletons';
 
 interface HomePageProps {
     /** The paginated list of dramas to display. */
@@ -111,7 +112,7 @@ export const HomePage: React.FC<HomePageProps> = ({
             {/* Result count and message - now shows a loading state */}
             <div className="mb-4 text-sm text-brand-text-secondary h-5">
                  {isLoading ? (
-                    <span className="animate-pulse">{!hasInitiallyLoaded ? 'Loading dramas...' : 'Searching...'}</span>
+                    <div className="h-5 w-48 bg-slate-700/50 rounded-md animate-pulse"></div>
                  ) : totalDramas > 0 ? (
                     <span>
                         Showing{' '}
@@ -126,11 +127,12 @@ export const HomePage: React.FC<HomePageProps> = ({
                 )}
             </div>
 
-            {/* The main content area: shows a spinner, the grid, or nothing */}
+            {/* The main content area: shows skeletons, the grid, or nothing */}
             {isLoading ? (
-                <div className="flex justify-center items-center h-[calc(100vh-400px)]">
-                    <div className="w-16 h-16 border-4 border-dashed rounded-full animate-spin border-brand-accent"></div>
-                    <span className="sr-only">Loading dramas...</span>
+                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-6">
+                    {Array.from({ length: itemsPerPage }).map((_, index) => (
+                        <DramaCardSkeleton key={index} />
+                    ))}
                 </div>
             ) : totalDramas > 0 ? (
                 <>

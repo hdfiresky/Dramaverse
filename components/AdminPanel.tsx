@@ -24,6 +24,7 @@ import {
 } from '../hooks/lib/adminApi';
 import { DataImportModal } from './DataImportModal';
 import { API_BASE_URL, BACKEND_MODE } from '../config';
+import { StatCardSkeleton, UserListItemSkeleton } from './Skeletons';
 
 
 // --- SUB-COMPONENTS ---
@@ -173,15 +174,9 @@ const DashboardStats: React.FC<{ stats: any | null; isLoading: boolean }> = ({ s
     if (isLoading) {
         return (
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-                {[...Array(3)].map((_, i) => (
-                    <div key={i} className="bg-brand-secondary p-4 rounded-lg flex items-center gap-4 shadow-md animate-pulse">
-                        <div className="bg-brand-primary p-3 rounded-full w-14 h-14"></div>
-                        <div className="w-full">
-                            <div className="h-4 bg-brand-primary rounded w-1/2 mb-2"></div>
-                            <div className="h-8 bg-brand-primary rounded w-1/3"></div>
-                        </div>
-                    </div>
-                ))}
+                <StatCardSkeleton />
+                <StatCardSkeleton />
+                <StatCardSkeleton />
             </div>
         );
     }
@@ -478,7 +473,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
                         />
                     </div>
                 </div>
-                 {isLoading ? <div className="text-center p-8">Loading users...</div> : (
+                 {isLoading ? (
+                    <div className="divide-y divide-slate-700">
+                        {Array.from({ length: 5 }).map((_, index) => (
+                            <UserListItemSkeleton key={index} />
+                        ))}
+                    </div>
+                 ) : (
                     <div className="divide-y divide-slate-700">
                         {filteredUsers.map(user => (
                             <div key={user.id}>
