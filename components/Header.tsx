@@ -1,6 +1,6 @@
 import React from 'react';
 import { User } from '../types';
-import { HomeIcon, ListBulletIcon, UserCircleIcon, SunIcon, MoonIcon, ChatBubbleOvalLeftEllipsisIcon, LightBulbIcon } from './Icons';
+import { HomeIcon, ListBulletIcon, UserCircleIcon, SunIcon, MoonIcon, ChatBubbleOvalLeftEllipsisIcon, SparklesIcon } from './Icons';
 
 /**
  * @fileoverview Defines the Header component for the application.
@@ -92,7 +92,7 @@ export const Header: React.FC<HeaderProps> = ({ onGoHome, onGoToMyList, onGoToAl
                             title="Recommendations"
                             aria-label="Go to recommendations page"
                         >
-                            <LightBulbIcon className="w-6 h-6" />
+                            <SparklesIcon className="w-6 h-6" />
                         </button>
                         <button 
                             onClick={onGoToAllReviews} 

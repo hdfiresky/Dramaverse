@@ -196,6 +196,7 @@ export const MyListPage: React.FC<MyListPageProps> = ({ allDramas, userData, onS
                             drama={drama} 
                             onSelect={onSelectDrama} 
                             userData={userData} 
+                            isUserLoggedIn={true}
                             onToggleFavorite={onToggleFavorite} 
                             onSetStatus={onSetStatus}
                             onSetReviewAndTrackProgress={onSetReviewAndTrackProgress}

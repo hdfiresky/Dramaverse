@@ -168,6 +168,7 @@ export default function App() {
                         searchTerm={searchTerm}
                         currentPage={currentPage}
                         itemsPerPage={ITEMS_PER_PAGE}
+                        isUserLoggedIn={!!currentUser}
                         onSelectDrama={handleSelectDrama}
                         onToggleFavorite={handleToggleFavorite}
                         onSetStatus={handleSetStatus}
@@ -292,6 +293,7 @@ export default function App() {
                     onPopModal={popModal}
                     onSelectDrama={handleSelectDrama} 
                     userData={userData} 
+                    isUserLoggedIn={!!currentUser}
                     onToggleFavorite={handleToggleFavorite} 
                     onSetStatus={handleSetStatus} 
                     onSetReviewAndTrackProgress={handleSetReviewAndTrackProgress}

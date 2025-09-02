@@ -3,7 +3,7 @@
  * This component provides primary navigation for logged-in users on smaller screens.
  */
 import React from 'react';
-import { HomeIcon, ListBulletIcon, ChatBubbleOvalLeftEllipsisIcon, ShieldCheckIcon, LightBulbIcon } from './Icons';
+import { HomeIcon, ListBulletIcon, ChatBubbleOvalLeftEllipsisIcon, ShieldCheckIcon, SparklesIcon } from './Icons';
 import { ActiveView } from '../hooks/useUIState';
 import { User } from '../types';
 
@@ -16,7 +16,7 @@ interface BottomNavBarProps {
 const navItems: { view: ActiveView; icon: typeof HomeIcon; label: string }[] = [
     { view: 'home', icon: HomeIcon, label: 'Home' },
     { view: 'my-list', icon: ListBulletIcon, label: 'My List' },
-    { view: 'recommendations', icon: LightBulbIcon, label: 'For You' },
+    { view: 'recommendations', icon: SparklesIcon, label: 'For You' },
     { view: 'all-reviews', icon: ChatBubbleOvalLeftEllipsisIcon, label: 'Reviews' },
 ];
 

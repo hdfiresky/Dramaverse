@@ -13,6 +13,8 @@ interface DramaCardProps {
     onSelect: (drama: Drama) => void;
     /** The current user's data, used to show favorite/watchlist status. Optional. */
     userData?: UserData;
+    /** A boolean indicating if a user is currently logged in. */
+    isUserLoggedIn?: boolean;
     /** Callback to toggle the drama's favorite status. */
     onToggleFavorite: (dramaUrl: string) => void;
     /** Callback to set the user's status for a drama. */
@@ -39,7 +41,7 @@ const statusOrder = [DramaStatus.Watching, DramaStatus.Completed, DramaStatus.On
  * @param {DramaCardProps} props - The props for the DramaCard component.
  * @returns {React.ReactElement} The rendered drama card.
  */
-export const DramaCard: React.FC<DramaCardProps> = ({ drama, onSelect, userData, onToggleFavorite, onSetStatus, onSetReviewAndTrackProgress }) => {
+export const DramaCard: React.FC<DramaCardProps> = ({ drama, onSelect, userData, isUserLoggedIn, onToggleFavorite, onSetStatus, onSetReviewAndTrackProgress }) => {
     const [statusPopoverOpen, setStatusPopoverOpen] = useState(false);
     const [reviewPopoverOpen, setReviewPopoverOpen] = useState(false);
     const [currentReviewEpisode, setCurrentReviewEpisode] = useState(1);
@@ -211,47 +213,49 @@ export const DramaCard: React.FC<DramaCardProps> = ({ drama, onSelect, userData,
                                 </div>
                             )}
                         </div>
-                        <div className="relative" ref={reviewWrapperRef}>
-                             <button
-                                onClick={handleToggleReviewPopover}
-                                className={`p-2 rounded-full transition-colors bg-black/50 text-white hover:bg-green-400`}
-                                title="Add/Edit Review" aria-haspopup="true" aria-expanded={reviewPopoverOpen}
-                            >
-                                <ChatBubbleOvalLeftEllipsisIcon className="w-5 h-5" />
-                            </button>
-                             {reviewPopoverOpen && (
-                                <div onClick={e => e.stopPropagation()} className="absolute right-0 top-full mt-2 w-64 bg-brand-secondary rounded-md shadow-lg z-20 p-3 ring-1 ring-black/5 animate-fade-in" style={{ animationDuration: '150ms' }}>
-                                    <div className="flex justify-between items-center mb-2">
-                                        <button 
-                                            onClick={() => handleReviewNavigation('prev')}
-                                            disabled={currentReviewEpisode === 1}
-                                            className="p-1 rounded-full hover:bg-brand-primary disabled:opacity-50"
-                                            aria-label="Previous episode review"
-                                        >
-                                            <ChevronLeftIcon className="w-5 h-5" />
-                                        </button>
-                                        <p className="text-sm font-semibold">Episode {currentReviewEpisode} / {drama.episodes}</p>
-                                        <button 
-                                            onClick={() => handleReviewNavigation('next')}
-                                            disabled={currentReviewEpisode === drama.episodes}
-                                            className="p-1 rounded-full hover:bg-brand-primary disabled:opacity-50"
-                                            aria-label="Next episode review"
-                                        >
-                                            <ChevronRightIcon className="w-5 h-5" />
-                                        </button>
+                        {isUserLoggedIn && (
+                            <div className="relative" ref={reviewWrapperRef}>
+                                <button
+                                    onClick={handleToggleReviewPopover}
+                                    className={`p-2 rounded-full transition-colors bg-black/50 text-white hover:bg-green-400`}
+                                    title="Add/Edit Review" aria-haspopup="true" aria-expanded={reviewPopoverOpen}
+                                >
+                                    <ChatBubbleOvalLeftEllipsisIcon className="w-5 h-5" />
+                                </button>
+                                {reviewPopoverOpen && (
+                                    <div onClick={e => e.stopPropagation()} className="absolute right-0 top-full mt-2 w-64 bg-brand-secondary rounded-md shadow-lg z-20 p-3 ring-1 ring-black/5 animate-fade-in" style={{ animationDuration: '150ms' }}>
+                                        <div className="flex justify-between items-center mb-2">
+                                            <button 
+                                                onClick={() => handleReviewNavigation('prev')}
+                                                disabled={currentReviewEpisode === 1}
+                                                className="p-1 rounded-full hover:bg-brand-primary disabled:opacity-50"
+                                                aria-label="Previous episode review"
+                                            >
+                                                <ChevronLeftIcon className="w-5 h-5" />
+                                            </button>
+                                            <p className="text-sm font-semibold">Episode {currentReviewEpisode} / {drama.episodes}</p>
+                                            <button 
+                                                onClick={() => handleReviewNavigation('next')}
+                                                disabled={currentReviewEpisode === drama.episodes}
+                                                className="p-1 rounded-full hover:bg-brand-primary disabled:opacity-50"
+                                                aria-label="Next episode review"
+                                            >
+                                                <ChevronRightIcon className="w-5 h-5" />
+                                            </button>
+                                        </div>
+                                        <textarea
+                                            value={reviewText}
+                                            onChange={(e) => setReviewText(e.target.value)}
+                                            rows={5}
+                                            placeholder="Your thoughts..."
+                                            onBlur={handleReviewSave}
+                                            className="w-full bg-brand-primary p-2 rounded-md focus:ring-2 focus:ring-brand-accent focus:outline-none text-sm resize-y"
+                                            aria-label={`Review text for episode ${currentReviewEpisode}`}
+                                        />
                                     </div>
-                                    <textarea
-                                        value={reviewText}
-                                        onChange={(e) => setReviewText(e.target.value)}
-                                        rows={5}
-                                        placeholder="Your thoughts..."
-                                        onBlur={handleReviewSave}
-                                        className="w-full bg-brand-primary p-2 rounded-md focus:ring-2 focus:ring-brand-accent focus:outline-none text-sm resize-y"
-                                        aria-label={`Review text for episode ${currentReviewEpisode}`}
-                                    />
-                                </div>
-                            )}
-                        </div>
+                                )}
+                            </div>
+                        )}
                         </>
                     )}
                 </div>

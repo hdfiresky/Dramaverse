@@ -40,6 +40,7 @@ const RecommendationEngineCard: React.FC<{
                 <DramaCard
                     drama={result}
                     userData={props.userData}
+                    isUserLoggedIn={true}
                     onSelect={props.onSelectDrama}
                     onToggleFavorite={props.onToggleFavorite}
                     onSetStatus={props.onSetStatus}

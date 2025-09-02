@@ -29,6 +29,8 @@ interface HomePageProps {
     currentPage: number;
     /** The number of items displayed per page. */
     itemsPerPage: number;
+    /** A boolean indicating if a user is logged in. */
+    isUserLoggedIn: boolean;
     /** Callback to open the detail modal for a selected drama. */
     onSelectDrama: (drama: Drama) => void;
     /** Callback to toggle a drama's favorite status. */
@@ -64,6 +66,7 @@ export const HomePage: React.FC<HomePageProps> = ({
     searchTerm,
     currentPage,
     itemsPerPage,
+    isUserLoggedIn,
     onSelectDrama,
     onToggleFavorite,
     onSetStatus,
@@ -135,6 +138,7 @@ export const HomePage: React.FC<HomePageProps> = ({
                                 drama={drama} 
                                 onSelect={onSelectDrama} 
                                 userData={userData} 
+                                isUserLoggedIn={isUserLoggedIn}
                                 onToggleFavorite={onToggleFavorite} 
                                 onSetStatus={onSetStatus}
                                 onSetReviewAndTrackProgress={onSetReviewAndTrackProgress}

@@ -27,6 +27,8 @@ interface CastDetailModalProps {
     onSetStatus: (url: string, statusInfo: Omit<UserDramaStatus, 'updatedAt'>) => void;
     /** If true, shows a "Back" button instead of a "Close" icon. */
     showBackButton: boolean;
+    /** A boolean indicating if a user is logged in. */
+    isUserLoggedIn: boolean;
     /** Callback to save a review and automatically track user progress. */
     onSetReviewAndTrackProgress: (drama: Drama, episodeNumber: number, text: string) => void;
 }
@@ -48,6 +50,7 @@ export const CastDetailModal: React.FC<CastDetailModalProps> = ({
     onToggleFavorite,
     onSetStatus,
     showBackButton = false,
+    isUserLoggedIn,
     onSetReviewAndTrackProgress
 }) => {
     // Memoize the list of dramas for the selected actor to avoid re-filtering on every render.
@@ -103,6 +106,7 @@ export const CastDetailModal: React.FC<CastDetailModalProps> = ({
                                     drama={drama}
                                     onSelect={onSelectDrama}
                                     userData={userData}
+                                    isUserLoggedIn={isUserLoggedIn}
                                     onToggleFavorite={onToggleFavorite}
                                     onSetStatus={onSetStatus}
                                     onSetReviewAndTrackProgress={onSetReviewAndTrackProgress}
