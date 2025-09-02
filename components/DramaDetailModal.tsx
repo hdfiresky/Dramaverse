@@ -5,9 +5,9 @@
  */
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import ReactDOM from 'react-dom';
-import { Drama, Filters, Recommendation, CastMember } from '../types';
+import { Drama, Filters, Recommendation, CastMember, User } from '../types';
 import {
-    CloseIcon, StarIcon, ChevronLeftIcon
+    CloseIcon, StarIcon, ChevronLeftIcon, PencilSquareIcon
 } from './Icons';
 import { BACKEND_MODE, API_BASE_URL } from '../config';
 
@@ -28,6 +28,10 @@ interface DramaDetailModalProps {
     filters: Filters;
     /** If true, shows a "Back" button in the header. */
     showBackButton: boolean;
+    /** The current logged-in user, to conditionally show user-specific actions. */
+    currentUser: User | null;
+    /** Callback to open the episode reviews modal for this drama. */
+    onOpenReviews: () => void;
 }
 
 const CRITERIA_OPTIONS: { id: 'genres' | 'tags' | 'description' | 'cast' | 'rating' | 'rating_count', label: string }[] = [
@@ -68,7 +72,7 @@ const RecommendationCard: React.FC<{
 );
 
 
-export const DramaDetailModal: React.FC<DramaDetailModalProps> = ({ drama, onCloseAll, onPopModal, onSelectDrama, onSetQuickFilter, onSelectActor, filters, showBackButton }) => {
+export const DramaDetailModal: React.FC<DramaDetailModalProps> = ({ drama, onCloseAll, onPopModal, onSelectDrama, onSetQuickFilter, onSelectActor, filters, showBackButton, currentUser, onOpenReviews }) => {
     const [activeTab, setActiveTab] = useState<'curated' | 'similarity'>('curated');
     const [selectedCriteria, setSelectedCriteria] = useState<string[]>(['genres', 'tags', 'rating']);
     const [recommendations, setRecommendations] = useState<any[]>([]);
@@ -94,18 +98,22 @@ export const DramaDetailModal: React.FC<DramaDetailModalProps> = ({ drama, onClo
             try {
                 let endpoint = '';
                 if (activeTab === 'curated') {
-                    endpoint = `${API_BASE_URL}/dramas/recommendations/curated/${encodeURIComponent(drama.url)}`;
+                    const params = new URLSearchParams({ url: drama.url });
+                    endpoint = `${API_BASE_URL}/dramas/recommendations/curated?${params.toString()}`;
                 } else { // similarity
                     if (selectedCriteria.length === 0) {
                         setRecommendations([]);
                         setIsLoadingRecs(false);
                         return;
                     }
-                    const params = new URLSearchParams({ criteria: selectedCriteria.join(',') });
-                    endpoint = `${API_BASE_URL}/dramas/recommendations/similar/${encodeURIComponent(drama.url)}?${params}`;
+                    const params = new URLSearchParams({ 
+                        url: drama.url,
+                        criteria: selectedCriteria.join(',') 
+                    });
+                    endpoint = `${API_BASE_URL}/dramas/recommendations/similar?${params.toString()}`;
                 }
                 
-                const res = await fetch(endpoint);
+                const res = await fetch(endpoint, { credentials: 'include' });
                 if (!res.ok) throw new Error("Failed to fetch recommendations.");
                 const data = await res.json();
                 setRecommendations(data);
@@ -136,6 +144,7 @@ export const DramaDetailModal: React.FC<DramaDetailModalProps> = ({ drama, onClo
 
     const tagPills = useMemo(() => drama ? drama.tags.map(t => (
         <button key={t} onClick={() => onSetQuickFilter('tag', t)} 
+            // FIX: Changed 'g' to 't' to correctly check if the tag is included in the filters.
             className={`text-xs font-semibold px-2 py-1 rounded transition-colors ${filters.tags.includes(t) ? "bg-sky-500/50 text-sky-200 cursor-default" : "bg-brand-primary hover:bg-brand-accent"}`}>
             {t}
         </button>
@@ -192,6 +201,17 @@ export const DramaDetailModal: React.FC<DramaDetailModalProps> = ({ drama, onClo
                                 </div>
                                 <p className="text-brand-text-secondary leading-relaxed mb-6">{drama.description}</p>
                                 
+                                {currentUser && (
+                                    <div className="mt-6">
+                                        <button
+                                            onClick={onOpenReviews}
+                                            className="w-full text-center py-3 px-4 bg-brand-primary hover:bg-brand-accent transition-colors rounded-lg font-semibold flex items-center justify-center gap-2"
+                                        >
+                                            <PencilSquareIcon className="w-5 h-5" />
+                                            <span>Edit Episode Reviews</span>
+                                        </button>
+                                    </div>
+                                )}
                             </div>
                         </section>
                         

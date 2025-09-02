@@ -285,8 +285,10 @@ app.get('/api/dramas', apiLimiter, async (req, res) => {
                                 columnExpression = `CAST(JSON_EXTRACT(data, '$.${p.key}') AS ${castType})`;
                             }
                             
-                            if (p.key === 'popularity_rank') {
-                                finalOrder = order === 'ASC' ? 'DESC' : 'ASC';
+                            if (p.key === 'popularity_rank' && order === 'DESC') {
+                                finalOrder = 'ASC';
+                            } else if (p.key === 'popularity_rank' && order === 'ASC') {
+                                finalOrder = 'DESC';
                             }
                             
                             return `${columnExpression} ${finalOrder}`;
@@ -303,7 +305,7 @@ app.get('/api/dramas', apiLimiter, async (req, res) => {
         }
         const pageNum = parseInt(page), limitNum = parseInt(limit), offset = (pageNum - 1) * limitNum;
         const [rows] = await db.query(`SELECT url, title, data FROM dramas WHERE ${whereString} ORDER BY ${orderBy} LIMIT ? OFFSET ?`, [...params, limitNum, offset]);
-        res.json({ totalItems: total, dramas: rows.map(r => ({ ...r.data, url: r.url, title: r.title })), currentPage: pageNum, totalPages: Math.ceil(total / limitNum) });
+        res.json({ totalItems: total, dramas: rows.map(r => ({ ...JSON.parse(r.data), url: r.url, title: r.title })), currentPage: pageNum, totalPages: Math.ceil(total / limitNum) });
     } catch (err) {
         console.error("Error in /api/dramas:", err);
         res.status(500).json({ message: "An error occurred while fetching dramas." });
@@ -313,28 +315,30 @@ app.get('/api/dramas', apiLimiter, async (req, res) => {
 app.get('/api/dramas/by-actor/:actorName', apiLimiter, async (req, res) => {
     const sql = `SELECT url, title, data FROM dramas WHERE JSON_SEARCH(data, 'one', ?, NULL, '$.cast[*].actor_name') IS NOT NULL`;
     const [rows] = await db.query(sql, [req.params.actorName]);
-    res.json(rows.map(r => ({...r.data, url: r.url, title: r.title})));
+    res.json(rows.map(r => ({...JSON.parse(r.data), url: r.url, title: r.title})));
 });
 
 app.post('/api/dramas/by-urls', apiLimiter, async (req, res) => {
     const { urls } = req.body;
     if (!Array.isArray(urls) || urls.length === 0) return res.json([]);
     const [rows] = await db.query(`SELECT url, title, data FROM dramas WHERE url IN (?)`, [urls]);
-    res.json(rows.map(r => ({...r.data, url: r.url, title: r.title})));
+    res.json(rows.map(r => ({...JSON.parse(r.data), url: r.url, title: r.title})));
 });
 
-app.get('/api/dramas/recommendations/curated/:url', apiLimiter, async (req, res) => {
-    const [[drama]] = await db.query(`SELECT data FROM dramas WHERE url = ?`, [req.params.url]);
+app.get('/api/dramas/recommendations/curated', apiLimiter, async (req, res) => {
+    const { url } = req.query;
+    if (!url) return res.status(400).json({ message: 'Drama URL is required.' });
+    const [[drama]] = await db.query(`SELECT data FROM dramas WHERE url = ?`, [url]);
     if (!drama) return res.status(404).json([]);
-    const recUrls = drama.data.recommendations.map(r => r.url);
+    const recUrls = (JSON.parse(drama.data).recommendations || []).map(r => r.url);
     if (recUrls.length === 0) return res.json([]);
     const [rows] = await db.query(`SELECT url, title, data FROM dramas WHERE url IN (?)`, [recUrls]);
-    res.json(rows.map(r => ({...r.data, url: r.url, title: r.title})));
+    res.json(rows.map(r => ({...JSON.parse(r.data), url: r.url, title: r.title})));
 });
 
-app.get('/api/dramas/recommendations/similar/:url', apiLimiter, async (req, res) => {
-    const baseDramaUrl = req.params.url;
-    const { criteria } = req.query;
+app.get('/api/dramas/recommendations/similar', apiLimiter, async (req, res) => {
+    const { url: baseDramaUrl, criteria } = req.query;
+    if (!baseDramaUrl) return res.status(400).json({ message: 'Drama URL is required.' });
     const selectedCriteria = criteria ? criteria.split(',') : [];
     if (selectedCriteria.length === 0) return res.json([]);
 
@@ -343,7 +347,7 @@ app.get('/api/dramas/recommendations/similar/:url', apiLimiter, async (req, res)
 
     const [[baseDramaRow]] = await db.query('SELECT data FROM dramas WHERE url = ?', [baseDramaUrl]);
     if (!baseDramaRow) return res.status(404).json([]);
-    const baseDrama = baseDramaRow.data;
+    const baseDrama = JSON.parse(baseDramaRow.data);
 
     if (selectedCriteria.includes('genres') && baseDrama.genres.length > 0) {
         scoreClauses.push(`(SELECT COUNT(*) FROM JSON_TABLE(?, '$[*]' COLUMNS(val VARCHAR(255) PATH '$')) AS j1 JOIN JSON_TABLE(d2.data->'$.genres', '$[*]' COLUMNS(val VARCHAR(255) PATH '$')) AS j2 ON j1.val = j2.val) * ?`);
@@ -377,7 +381,7 @@ app.get('/api/dramas/recommendations/similar/:url', apiLimiter, async (req, res)
     params.push(baseDramaUrl);
 
     const [results] = await db.query(sql, params);
-    res.json(results.map(r => ({ drama: {...r.data, url: r.url, title: r.title}, score: Math.round(r.score) })));
+    res.json(results.map(r => ({ drama: {...JSON.parse(r.data), url: r.url, title: r.title}, score: Math.round(r.score) })));
 });
 
 
@@ -426,6 +430,47 @@ app.post('/api/user/statuses', async (req, res) => {
     if (result.affectedRows > 0) emitToUserRoom(req.user.id, 'status_updated', { dramaUrl, statusInfo: status ? { status, currentEpisode: currentEpisode || 0, updatedAt: now } : null });
     res.sendStatus(200);
 });
+
+app.post('/api/user/reviews/episodes', async (req, res) => {
+    const { dramaUrl, episodeNumber, text, clientUpdatedAt, force } = req.body;
+    const userId = req.user.id;
+    if (typeof dramaUrl !== 'string' || typeof episodeNumber !== 'number' || typeof text !== 'string' || typeof clientUpdatedAt !== 'number' || (force !== undefined && typeof force !== 'boolean')) {
+        return res.status(400).json({ message: 'Invalid payload.' });
+    }
+
+    try {
+        if (!force) {
+            const [[serverReview]] = await db.query('SELECT updated_at, review_text FROM user_episode_reviews WHERE user_id = ? AND drama_url = ? AND episode_number = ?', [userId, dramaUrl, episodeNumber]);
+            if (serverReview && serverReview.updated_at > clientUpdatedAt) {
+                return res.status(409).json({ message: 'Conflict detected.', serverVersion: { text: serverReview.review_text, updatedAt: parseInt(serverReview.updated_at) } });
+            }
+        }
+
+        const now = Date.now();
+        let reviewUpdated = false;
+
+        if (text.trim() === '') {
+            const [delResult] = await db.execute('DELETE FROM user_episode_reviews WHERE user_id = ? AND drama_url = ? AND episode_number = ?', [userId, dramaUrl, episodeNumber]);
+            if (delResult.affectedRows > 0) reviewUpdated = true;
+        } else {
+            const [insResult] = await db.execute('INSERT INTO user_episode_reviews (user_id, drama_url, episode_number, review_text, updated_at) VALUES (?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE review_text=VALUES(review_text), updated_at=VALUES(updated_at)', [userId, dramaUrl, episodeNumber, text, now]);
+            if (insResult.affectedRows > 0) reviewUpdated = true;
+        }
+
+        if (reviewUpdated) {
+            emitToUserRoom(userId, 'episode_review_updated', {
+                dramaUrl,
+                episodeNumber,
+                review: text.trim() ? { text, updatedAt: now } : null
+            });
+        }
+        res.status(200).json({ success: true, newUpdatedAt: now });
+    } catch (e) {
+        console.error("Error in /api/user/reviews/episodes:", e);
+        res.status(500).json({ message: 'Database error while updating review.' });
+    }
+});
+
 app.post('/api/user/reviews/track_progress', async (req, res) => {
     const { dramaUrl, episodeNumber, text, totalEpisodes, clientUpdatedAt, force } = req.body;
     const now = Date.now(), userId = req.user.id;
@@ -473,6 +518,80 @@ app.post('/api/user/change-password', async (req, res) => {
     res.sendStatus(200);
 });
 
+app.get('/api/user/recommendations', apiLimiter, async (req, res) => {
+    const userId = req.user.id;
+    try {
+        const [seenRows] = await db.query(`
+            SELECT drama_url FROM user_statuses WHERE user_id = ?
+            UNION SELECT drama_url FROM user_favorites WHERE user_id = ?
+        `, [userId, userId]);
+        const seenUrls = seenRows.map(r => r.drama_url);
+        const seenUrlsParam = seenUrls.length > 0 ? seenUrls : [''];
+
+        const results = { hiddenGem: null, genreSpecialist: null, starPower: null, peerPick: null };
+
+        const [topGenreRows] = await db.query(`
+            SELECT g.genre, COUNT(*) c FROM user_statuses us JOIN dramas d ON us.drama_url = d.url,
+            JSON_TABLE(d.data->'$.genres', '$[*]' COLUMNS(genre VARCHAR(255) PATH '$')) g
+            WHERE us.user_id = ? AND us.status = 'Completed' GROUP BY g.genre ORDER BY c DESC, RAND() LIMIT 1
+        `, [userId]);
+
+        if (topGenreRows.length > 0) {
+            const topGenre = topGenreRows[0].genre;
+            const [[gs]] = await db.query(`
+                SELECT d.url, d.title, d.data FROM dramas d, JSON_TABLE(d.data->'$.genres', '$[*]' COLUMNS(genre VARCHAR(255) PATH '$')) g
+                WHERE g.genre = ? AND d.url NOT IN (?) ORDER BY CAST(JSON_EXTRACT(d.data, '$.rating') AS DECIMAL(10,1)) DESC, 
+                CAST(JSON_EXTRACT(d.data, '$.rating_count') AS UNSIGNED) DESC LIMIT 1
+            `, [topGenre, seenUrlsParam]);
+            if (gs) results.genreSpecialist = { drama: {...JSON.parse(gs.data), url: gs.url, title: gs.title}, genre: topGenre };
+            
+            const [[hg]] = await db.query(`
+                SELECT d.url, d.title, d.data FROM dramas d, JSON_TABLE(d.data->'$.genres', '$[*]' COLUMNS(genre VARCHAR(255) PATH '$')) g
+                WHERE JSON_EXTRACT(d.data, '$.rating') > 8.8 AND CAST(JSON_EXTRACT(d.data, '$.popularity_rank') AS UNSIGNED) > 800
+                AND g.genre = ? AND d.url NOT IN (?) ORDER BY RAND() LIMIT 1
+            `, [topGenre, seenUrlsParam]);
+            if (hg) results.hiddenGem = {...JSON.parse(hg.data), url: hg.url, title: hg.title};
+        }
+        
+        const [topActorRows] = await db.query(`
+            SELECT c.actor_name, COUNT(*) as cnt FROM user_statuses us JOIN dramas d ON us.drama_url = d.url,
+            JSON_TABLE(d.data->'$.cast', '$[*]' COLUMNS(actor_name VARCHAR(255) PATH '$.actor_name')) as c
+            WHERE us.user_id = ? AND us.status = 'Completed' GROUP BY c.actor_name ORDER BY cnt DESC, RAND() LIMIT 1
+        `, [userId]);
+
+        if (topActorRows.length > 0) {
+            const topActor = topActorRows[0].actor_name;
+            const [[sp]] = await db.query(`
+                SELECT d.url, d.title, d.data FROM dramas d, JSON_TABLE(d.data->'$.cast', '$[*]' COLUMNS(actor_name VARCHAR(255) PATH '$.actor_name')) c
+                WHERE c.actor_name = ? AND d.url NOT IN (?) ORDER BY CAST(JSON_EXTRACT(d.data, '$.popularity_rank') AS UNSIGNED) ASC LIMIT 1
+            `, [topActor, seenUrlsParam]);
+            if (sp) results.starPower = { drama: {...JSON.parse(sp.data), url: sp.url, title: sp.title}, actor: topActor };
+        }
+
+        const [twins] = await db.query(`
+            SELECT us2.user_id, COUNT(*) c FROM user_statuses us1 JOIN user_statuses us2 ON us1.drama_url = us2.drama_url
+            WHERE us1.user_id = ? AND us1.status = 'Completed' AND us2.user_id != ? AND us2.status = 'Completed'
+            GROUP BY us2.user_id HAVING c > 2 ORDER BY c DESC, RAND() LIMIT 1
+        `, [userId, userId]);
+        
+        if (twins.length > 0) {
+            const twinId = twins[0].user_id;
+            const [[pp]] = await db.query(`
+                SELECT us.drama_url, d.title, d.data FROM user_statuses us JOIN dramas d ON us.drama_url = d.url
+                WHERE us.user_id = ? AND us.status = 'Completed' AND us.drama_url NOT IN (?)
+                ORDER BY CAST(JSON_EXTRACT(d.data, '$.rating') AS DECIMAL(10,1)) DESC LIMIT 1
+            `, [twinId, seenUrlsParam]);
+            if (pp) results.peerPick = {...JSON.parse(pp.data), url: pp.drama_url, title: pp.title};
+        }
+
+        res.json(results);
+    } catch (err) {
+        console.error("Error in /api/user/recommendations:", err);
+        res.status(500).json({ message: "An error occurred while generating recommendations." });
+    }
+});
+
+
 // Admin endpoints...
 app.use('/api/admin', authMiddleware, adminAuthMiddleware, apiLimiter);
 app.get('/api/admin/users', async (req, res) => { const [rows] = await db.query('SELECT id, username, is_banned, is_admin FROM users'); res.json(rows.map(u => ({ ...u, isAdmin: !!u.is_admin, is_banned: !!u.is_banned }))); });
@@ -494,7 +613,7 @@ app.post('/api/admin/dramas/upload-preview', upload.single('dramaFile'), async (
     try {
         const uploaded = JSON.parse(await fs.readFile(req.file.path, 'utf-8'));
         const [existingRows] = await db.query('SELECT url, data FROM dramas');
-        const existing = new Map(existingRows.map(r => [r.url, r.data]));
+        const existing = new Map(existingRows.map(r => [r.url, JSON.parse(r.data)]));
         const results = { new: [], updated: [], unchanged: [], errors: [] };
         for (const [i, d] of uploaded.entries()) {
             if (!d.url || !d.title) { results.errors.push({ index: i, drama: d, error: 'Missing url or title.' }); continue; }

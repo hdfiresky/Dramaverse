@@ -29,6 +29,7 @@ import { AdminPanel } from './components/AdminPanel';
 import { ConflictResolutionModal } from './components/ConflictResolutionModal';
 import { RecommendationsPage } from './components/RecommendationsPage';
 import { ChangePasswordModal } from './components/ChangePasswordModal';
+import { EpisodeReviewsModal } from './components/EpisodeReviewsModal';
 
 
 export default function App() {
@@ -52,7 +53,7 @@ export default function App() {
     const {
         currentUser, userData, isAuthLoading,
         login, logout, register,
-        toggleFavorite, setDramaStatus, setReviewAndTrackProgress,
+        toggleFavorite, setDramaStatus, setReviewAndTrackProgress, setEpisodeReview,
         resolveConflict,
         changePassword,
     } = useAuth(closeAuthModal, openConflictModal); // Pass callbacks.
@@ -98,6 +99,15 @@ export default function App() {
     const handleSelectActor = useCallback((actorName: string) => {
         pushModal({ type: 'cast', actorName });
     }, [pushModal]);
+
+    /** Handles opening the episode reviews modal by pushing it onto the stack. */
+    const handleOpenReviews = useCallback((drama: Drama) => {
+        if (currentUser) {
+            pushModal({ type: 'reviews', drama });
+        } else {
+            openAuthModal();
+        }
+    }, [pushModal, currentUser, openAuthModal]);
     
     /** Handles changes to the main search input field. */
     const handleSearchChange = (term: string) => {
@@ -151,6 +161,10 @@ export default function App() {
         if (!setReviewAndTrackProgress(...args)) openAuthModal();
     }, [setReviewAndTrackProgress, openAuthModal]);
     
+    const handleSetEpisodeReview = useCallback((...args: Parameters<typeof setEpisodeReview>) => {
+        if (!setEpisodeReview(...args)) openAuthModal();
+    }, [setEpisodeReview, openAuthModal]);
+
     /** Logs the user out and navigates back to the home page. */
     const handleLogout = () => {
         logout();
@@ -296,6 +310,8 @@ export default function App() {
                     onSelectActor={handleSelectActor} 
                     filters={filters}
                     showBackButton={modalStack.length > 1}
+                    currentUser={currentUser}
+                    onOpenReviews={() => handleOpenReviews(activeModal.drama)}
                 />
             )}
             {activeModal?.type === 'cast' && (
@@ -309,6 +325,16 @@ export default function App() {
                     onToggleFavorite={handleToggleFavorite} 
                     onSetStatus={handleSetStatus} 
                     onSetReviewAndTrackProgress={handleSetReviewAndTrackProgress}
+                    showBackButton={modalStack.length > 1}
+                />
+            )}
+            {activeModal?.type === 'reviews' && (
+                <EpisodeReviewsModal
+                    drama={activeModal.drama}
+                    userData={userData}
+                    onCloseAll={closeAllModals}
+                    onPopModal={popModal}
+                    onSetEpisodeReview={handleSetEpisodeReview}
                     showBackButton={modalStack.length > 1}
                 />
             )}

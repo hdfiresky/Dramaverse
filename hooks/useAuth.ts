@@ -433,6 +433,29 @@ export const useAuth = (onLoginSuccess?: () => void, openConflictModal?: (data: 
         );
     }, [authenticatedUpdate, userData.statuses]);
 
+    const setEpisodeReview = useCallback((dramaUrl: string, episodeNumber: number, text: string) => {
+        const clientUpdatedAt = userData.episodeReviews?.[dramaUrl]?.[episodeNumber]?.updatedAt || 0;
+        
+        return authenticatedUpdate(
+            '/user/reviews/episodes',
+            { dramaUrl, episodeNumber, text, clientUpdatedAt },
+            (currentData) => {
+                const newUserData = JSON.parse(JSON.stringify(currentData));
+                const { episodeReviews } = newUserData;
+                const now = Date.now();
+    
+                if (!episodeReviews[dramaUrl]) episodeReviews[dramaUrl] = {};
+                if (text.trim() === '') {
+                    delete episodeReviews[dramaUrl][episodeNumber];
+                    if (Object.keys(episodeReviews[dramaUrl]).length === 0) delete episodeReviews[dramaUrl];
+                } else {
+                    episodeReviews[dramaUrl][episodeNumber] = { text, updatedAt: now };
+                }
+                return newUserData;
+            }
+        );
+    }, [authenticatedUpdate, userData.episodeReviews]);
+
     const setReviewAndTrackProgress = useCallback((drama: Drama, episodeNumber: number, text: string) => {
         const { url: dramaUrl, episodes: totalEpisodes } = drama;
         const clientUpdatedAt = userData.episodeReviews?.[dramaUrl]?.[episodeNumber]?.updatedAt || 0;
@@ -526,6 +549,7 @@ export const useAuth = (onLoginSuccess?: () => void, openConflictModal?: (data: 
         toggleFavorite,
         setDramaStatus,
         setReviewAndTrackProgress,
+        setEpisodeReview,
         resolveConflict,
         changePassword,
     };
