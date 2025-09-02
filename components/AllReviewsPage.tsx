@@ -5,13 +5,11 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Drama, UserData, EpisodeReview } from '../types';
 import { ChevronRightIcon } from './Icons';
-import { BACKEND_MODE, API_BASE_URL } from '../config';
+import { useDramaDetails } from '../hooks/useDramaDetails';
 import { ReviewedDramaCardSkeleton } from './Skeletons';
 
 
 interface AllReviewsPageProps {
-    /** The complete list of all dramas. Used only in frontend-only mode. */
-    allDramas: Drama[];
     /** The current user's data containing their reviews. */
     userData: UserData;
     /** Callback to open the detail modal for a selected drama. */
@@ -120,50 +118,21 @@ const ReviewedDramaCard: React.FC<{
 /**
  * The main page component for displaying all user reviews.
  */
-export const AllReviewsPage: React.FC<AllReviewsPageProps> = ({ allDramas, userData, onSelectDrama }) => {
+export const AllReviewsPage: React.FC<AllReviewsPageProps> = ({ userData, onSelectDrama }) => {
     type SortByType = 'latest' | 'mostReviews' | 'alpha';
     const [sortBy, setSortBy] = useState<SortByType>('latest');
-    const [dramaDetails, setDramaDetails] = useState<Map<string, Drama>>(new Map());
-    const [isLoading, setIsLoading] = useState(BACKEND_MODE);
-
-    useEffect(() => {
-        const fetchDramaDetails = async () => {
-            if (!BACKEND_MODE) return;
-            
-            const reviewUrls = Object.keys(userData.episodeReviews);
-            if (reviewUrls.length === 0) {
-                setIsLoading(false);
-                return;
-            }
-
-            try {
-                const res = await fetch(`${API_BASE_URL}/dramas/by-urls`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', },
-                    credentials: 'include',
-                    body: JSON.stringify({ urls: reviewUrls })
-                });
-                if (!res.ok) throw new Error("Failed to fetch drama details.");
-                const dramas: Drama[] = await res.json();
-                setDramaDetails(new Map(dramas.map(d => [d.url, d])));
-            } catch (e) {
-                console.error(e);
-            } finally {
-                setIsLoading(false);
-            }
-        };
-        fetchDramaDetails();
-    }, [userData.episodeReviews]);
-
+    
+    // --- Data Fetching ---
+    const reviewUrls = useMemo(() => Object.keys(userData.episodeReviews), [userData.episodeReviews]);
+    const { dramaDetails, isLoading } = useDramaDetails(reviewUrls);
 
     const reviewedDramas = useMemo<ReviewedDrama[]>(() => {
-        const dramaMap = BACKEND_MODE ? dramaDetails : new Map(allDramas.map(d => [d.url, d]));
-        if (dramaMap.size === 0 && BACKEND_MODE && !isLoading) return [];
+        if (dramaDetails.size === 0 && !isLoading) return [];
         
         const result: ReviewedDrama[] = [];
 
         for (const dramaUrl in userData.episodeReviews) {
-            const drama = dramaMap.get(dramaUrl);
+            const drama = dramaDetails.get(dramaUrl);
             const reviewsData = userData.episodeReviews[dramaUrl];
 
             if (drama && reviewsData) {
@@ -185,7 +154,7 @@ export const AllReviewsPage: React.FC<AllReviewsPageProps> = ({ allDramas, userD
             }
         }
         return result;
-    }, [allDramas, userData, dramaDetails, isLoading]);
+    }, [userData, dramaDetails, isLoading]);
     
     const totalReviewsCount = useMemo(() => {
         return reviewedDramas.reduce((acc, drama) => acc + drama.reviewCount, 0);

@@ -12,13 +12,16 @@ The application's architecture is now centered around the **browser URL as the s
     -   **Responsibility**: It parses the current `window.location` into a clean `location` object (`{ pathname, query }`). It listens for browser back/forward button clicks (the `popstate` event) and updates its state accordingly, triggering a re-render. It also provides a `navigate` function that uses the HTML5 History API (`pushState`/`replaceState`) to update the URL without a full page reload.
     -   **Benefit**: This hook makes the entire application URL-aware, enabling deep linking, refresh persistence, and predictable browser history behavior.
 
--   **`useDramas`**: The core of data management.
-    -   **Responsibility**: Fetches the master `dramas.json` file and performs all filtering and sorting logic.
-    -   **URL-Driven**: It no longer receives state directly from `useState` hooks in `App.tsx`. Instead, it receives props (like filters and the current page) that have been parsed from the URL by the `useRouter` hook.
+-   **`useDramas`**: Manages the main, browsable list of dramas.
+    -   **Responsibility**: In backend mode, it fetches paginated, filtered, and sorted lists of dramas from the server for the homepage. In frontend-only mode, it loads the entire `dramas.json` and performs all filtering/sorting client-side.
+    -   **URL-Driven**: It receives props (like filters and the current page) that have been parsed from the URL by the `useRouter` hook in `App.tsx`.
+
+-   **`useDramaDetails`**: The specialized hook for on-demand data fetching.
+    -   **Responsibility**: This hook is crucial for backend mode. It takes an array of drama URLs and fetches their full data objects from the server. It maintains a cache to avoid redundant requests.
+    -   **Benefit**: It efficiently provides the data needed for modals, the "My List" page, and the "Reviews" page, which would otherwise not have access to the full drama details in backend mode. This fixes a critical flaw in the data loading strategy.
 
 -   **`useAuth`**: Handles all user-related functionality.
     -   **Responsibility**: Manages the current user's session, provides `login`, `logout`, and `register` functions, and handles all modifications to a user's personal data.
-    -   **Persistence**: It uses the `useLocalStorage` hook for frontend-only mode data persistence.
 
 ## 2. Unidirectional Data Flow (Driven by the URL)
 
@@ -40,11 +43,7 @@ Modals are now part of the URL state, typically stored in a query parameter (e.g
 -   **React Portals**: The modal components are still rendered using `ReactDOM.createPortal` into a dedicated `<div id="modal-root"></div>`. This solves CSS `z-index` and stacking issues by rendering the modal outside the main component hierarchy.
 -   **Benefit**: This combination means modals are persistent on refresh, can be deep-linked, and work correctly with the browser's back button.
 
-## 4. Client-Side Processing
+## 4. Client-Side vs. Server-Side Processing
 
-All complex computations are performed on the client-side after the initial data load. This includes:
--   Filtering the drama list based on criteria from the URL.
--   Calculating weighted scores for sorting.
--   Calculating similarity scores for the recommendation engine.
-
-The use of `useMemo` is critical to ensure these computations are only run when the relevant parts of the URL change, maintaining a smooth user experience.
+-   **Frontend-Only Mode**: All complex computations are performed on the client-side after the initial data load. This includes filtering, weighted sorting, and similarity calculations. `useMemo` is used extensively to optimize performance.
+-   **Backend Mode**: All heavy lifting (filtering, sorting, searching, recommendations) is offloaded to the server via API calls. The client is responsible for sending the correct parameters (derived from the URL) and rendering the data returned by the server. This makes the application highly scalable.

@@ -219,7 +219,6 @@ export const useDramas = (filters: Filters, searchTerm: string, sortPriorities: 
     return {
         displayDramas,
         totalDramas,
-        allDramas: rawDramas, // Provide the full raw list for frontend-only mode modals
         metadata,
         isLoading,
         dataError,

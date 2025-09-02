@@ -4,10 +4,10 @@ This document provides an overview of the React components used in the Dramavers
 
 ## Component Hierarchy
 
-The application follows a logical component hierarchy, with `App.tsx` serving as the root container. `App.tsx` uses the `useRouter` hook to derive the application's state from the URL and passes this state down to its children.
+The application follows a logical component hierarchy, with `App.tsx` serving as the root container. `App.tsx` uses the `useRouter` hook to derive the application's state from the URL and passes this state down to its children. It now also uses the `useDramaDetails` hook to fetch specific data required by modals and user pages on-demand.
 
 ` ` `
-- App.tsx (manages state via `useRouter`, `useDramas`, `useAuth`)
+- App.tsx (manages state via `useRouter`, `useDramas`, `useAuth`, `useDramaDetails`)
   - Header.tsx
   - FilterSidebar.tsx
     - FilterSection.tsx
@@ -16,20 +16,20 @@ The application follows a logical component hierarchy, with `App.tsx` serving as
       - (FilterBadge)
     - DramaCard.tsx
     - Pagination.tsx
-  - MyListPage.tsx
+  - MyListPage.tsx (uses `useDramaDetails`)
     - DramaCard.tsx
-  - AllReviewsPage.tsx
+  - AllReviewsPage.tsx (uses `useDramaDetails`)
   - RecommendationsPage.tsx
   - AdminPanel.tsx
   - BottomNavBar.tsx
   - AuthModal.tsx
   - ChangePasswordModal.tsx
   - ConflictResolutionModal.tsx
-  - DramaDetailModal.tsx
+  - DramaDetailModal.tsx (receives data from `useDramaDetails` in App.tsx)
     - (RecommendationCard)
   - CastDetailModal.tsx
     - DramaCard.tsx
-  - EpisodeReviewsModal.tsx
+  - EpisodeReviewsModal.tsx (receives data from `useDramaDetails` in App.tsx)
   - Skeletons.tsx
   - Icons.tsx (Used throughout)
 ` ` `
@@ -40,14 +40,14 @@ The application follows a logical component hierarchy, with `App.tsx` serving as
 
 -   **`App.tsx`**
     -   **Role**: The main application container. It orchestrates all custom hooks, derives the application's state from the current URL, and renders the appropriate view and modals.
-    -   **Key Logic**: Contains all handler functions that trigger navigation and state changes by updating the URL.
+    -   **Key Logic**: Contains all handler functions that trigger navigation and state changes by updating the URL. Manages on-demand data fetching for modals.
 
 -   **`HomePage.tsx`**
     -   **Role**: Renders the main discovery page, including the search bar, filter controls, drama grid, and pagination.
     -   **Key Props**: Receives all its data and state (dramas, currentPage, etc.) from `App.tsx`, which is derived from the URL.
 
 -   **`MyListPage.tsx`**
-    -   **Role**: Renders the personalized user lists for logged-in users. Its visibility is controlled by the URL path.
+    -   **Role**: Renders the personalized user lists for logged-in users. Its visibility is controlled by the URL path. It now uses the `useDramaDetails` hook to fetch its own data in backend mode.
     -   **Key Props**: `userData`, `onSelectDrama`.
 
 ### Core UI Elements

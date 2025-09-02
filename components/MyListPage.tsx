@@ -7,12 +7,10 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { Drama, UserData, DramaStatus, UserDramaStatus } from '../types';
 import { DramaCard } from './DramaCard';
 import { EyeIcon, BookmarkIcon, CheckCircleIcon, HeartIcon, PauseIcon, XCircleIcon } from './Icons';
-import { BACKEND_MODE, API_BASE_URL } from '../config';
+import { useDramaDetails } from '../hooks/useDramaDetails';
 import { DramaCardSkeleton } from './Skeletons';
 
 interface MyListPageProps {
-    /** The complete list of all dramas, used to look up drama details from URLs. Only used in frontend-only mode. */
-    allDramas: Drama[];
     /** The current user's data, containing their lists (favorites, statuses). */
     userData: UserData;
     /** Callback to open the detail modal for a selected drama. */
@@ -71,51 +69,23 @@ const getInitialFilter = (userData: UserData): DramaStatus | 'Favorites' => {
  * @param {MyListPageProps} props - The props for the MyListPage component.
  * @returns {React.ReactElement} The rendered My List page.
  */
-export const MyListPage: React.FC<MyListPageProps> = ({ allDramas, userData, onSelectDrama, onToggleFavorite, onSetStatus, onSetReviewAndTrackProgress }) => {
+export const MyListPage: React.FC<MyListPageProps> = ({ userData, onSelectDrama, onToggleFavorite, onSetStatus, onSetReviewAndTrackProgress }) => {
     // State to keep track of the currently active filter, initialized with the most recently updated list.
     const [activeFilter, setActiveFilter] = useState<DramaStatus | 'Favorites'>(() => getInitialFilter(userData));
-    const [dramaDetails, setDramaDetails] = useState<Map<string, Drama>>(new Map());
-    const [isLoading, setIsLoading] = useState(BACKEND_MODE);
     
+    // --- Data Fetching ---
+    const allUrls = useMemo(() => {
+        const statusUrls = Object.keys(userData.statuses);
+        const favoriteUrls = userData.favorites;
+        return [...new Set([...statusUrls, ...favoriteUrls])];
+    }, [userData]);
+
+    const { dramaDetails, isLoading } = useDramaDetails(allUrls);
+
     // Effect to update the active filter if the user data changes (e.g., after an update on another tab).
     useEffect(() => {
         setActiveFilter(getInitialFilter(userData));
     }, [userData]);
-
-    // Effect to fetch full drama objects in backend mode.
-    useEffect(() => {
-        const fetchDramaDetails = async () => {
-            if (!BACKEND_MODE) return;
-
-            const statusUrls = Object.keys(userData.statuses);
-            const favoriteUrls = userData.favorites;
-            const allUrls = [...new Set([...statusUrls, ...favoriteUrls])];
-
-            if (allUrls.length === 0) {
-                setIsLoading(false);
-                return;
-            }
-
-            try {
-                const res = await fetch(`${API_BASE_URL}/dramas/by-urls`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', },
-                    credentials: 'include',
-                    body: JSON.stringify({ urls: allUrls })
-                });
-                if (!res.ok) throw new Error("Failed to fetch drama details.");
-                const dramas: Drama[] = await res.json();
-                setDramaDetails(new Map(dramas.map(d => [d.url, d])));
-            } catch (e) {
-                console.error(e);
-            } finally {
-                setIsLoading(false);
-            }
-        };
-
-        fetchDramaDetails();
-    }, [userData]);
-
 
     // Effect to scroll to the top of the page whenever the active filter changes.
     useEffect(() => {
@@ -125,14 +95,13 @@ export const MyListPage: React.FC<MyListPageProps> = ({ allDramas, userData, onS
     // Memoize the categorized and sorted lists of dramas to prevent re-computation on every render.
     const dramasByStatus = useMemo(() => {
         const lists: Record<DramaStatus | 'Favorites', Drama[]> = { [DramaStatus.Watching]: [], [DramaStatus.Completed]: [], [DramaStatus.OnHold]: [], [DramaStatus.Dropped]: [], [DramaStatus.PlanToWatch]: [], Favorites: [] };
-        const dramaMap = BACKEND_MODE ? dramaDetails : new Map(allDramas.map(d => [d.url, d]));
         
-        if (dramaMap.size === 0 && BACKEND_MODE && !isLoading) return lists;
+        if (dramaDetails.size === 0 && !isLoading) return lists;
 
         const tempStatusLists: Partial<Record<DramaStatus, { drama: Drama; updatedAt: number }[]>> = {};
 
         for (const url in userData.statuses) {
-            const drama = dramaMap.get(url);
+            const drama = dramaDetails.get(url);
             const statusInfo = userData.statuses[url];
             if (drama && statusInfo?.status) {
                 if (!tempStatusLists[statusInfo.status]) tempStatusLists[statusInfo.status] = [];
@@ -147,17 +116,12 @@ export const MyListPage: React.FC<MyListPageProps> = ({ allDramas, userData, onS
                 .map(item => item.drama);
         }
 
-        const favDramasWithTime = userData.favorites
-            .map(url => ({ drama: dramaMap.get(url), ts: userData.listUpdateTimestamps[`Favorites-${url}`] || 0 }))
-            .filter(item => item.drama);
-        
-        // This is a simplified sort for favorites. The backend now provides a timestamp for each favorite add/remove,
-        // but for simplicity here we just reverse the array as `useAuth` prepends new favorites.
-        // A more robust solution would involve storing a timestamp per favorite.
-        lists.Favorites = userData.favorites.map(url => dramaMap.get(url)).filter((d): d is Drama => Boolean(d));
+        lists.Favorites = userData.favorites
+            .map(url => dramaDetails.get(url))
+            .filter((d): d is Drama => Boolean(d));
 
         return lists;
-    }, [allDramas, userData, dramaDetails, isLoading]);
+    }, [userData, dramaDetails, isLoading]);
 
     const activeList = dramasByStatus[activeFilter];
 

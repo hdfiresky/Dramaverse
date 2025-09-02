@@ -6,13 +6,13 @@
  */
 import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import { Filters, SortPriority, UserData, UserDramaStatus, Drama, ModalStackItem } from './types';
-import { useLocalStorage } from './hooks/useLocalStorage';
 import { useAuth } from './hooks/useAuth';
 import { useDramas } from './hooks/useDramas';
 import { useDebounce } from './hooks/useDebounce';
 import { useWindowSize } from './hooks/useWindowSize';
 import { useRouter, ActiveView } from './hooks/useRouter';
-import { BASE_ITEMS_PER_PAGE, LOCAL_STORAGE_KEYS } from './hooks/lib/constants';
+import { useDramaDetails } from './hooks/useDramaDetails';
+import { BASE_ITEMS_PER_PAGE } from './hooks/lib/constants';
 
 // Component Imports
 import { Header } from './components/Header';
@@ -51,11 +51,9 @@ export default function App() {
         const adminViews: ActiveView[] = ['admin'];
 
         if (!currentUser && protectedViews.includes(activeView)) {
-            console.log(`Redirecting unauthorized user from protected view: ${activeView}`);
             navigate('/home');
         }
         if (!currentUser?.isAdmin && adminViews.includes(activeView)) {
-            console.log(`Redirecting non-admin user from admin view: ${activeView}`);
             navigate('/home');
         }
     }, [activeView, currentUser, navigate]);
@@ -64,12 +62,12 @@ export default function App() {
     const query = location.query;
 
     const filters = useMemo<Filters>(() => ({
-        genres: query.get('genres')?.split(',') || [],
-        excludeGenres: query.get('excludeGenres')?.split(',') || [],
-        tags: query.get('tags')?.split(',') || [],
-        excludeTags: query.get('excludeTags')?.split(',') || [],
-        countries: query.get('countries')?.split(',') || [],
-        cast: query.get('cast')?.split(',') || [],
+        genres: query.get('genres')?.split(',').filter(Boolean) || [],
+        excludeGenres: query.get('excludeGenres')?.split(',').filter(Boolean) || [],
+        tags: query.get('tags')?.split(',').filter(Boolean) || [],
+        excludeTags: query.get('excludeTags')?.split(',').filter(Boolean) || [],
+        countries: query.get('countries')?.split(',').filter(Boolean) || [],
+        cast: query.get('cast')?.split(',').filter(Boolean) || [],
         minRating: parseFloat(query.get('minRating') || '0'),
     }), [query]);
 
@@ -108,9 +106,16 @@ export default function App() {
     }, [width]);
 
     const { 
-        displayDramas, totalDramas, allDramas, metadata, isLoading, dataError, hasInitiallyLoaded
+        displayDramas, totalDramas, metadata, isLoading, dataError, hasInitiallyLoaded
     } = useDramas(filters, debouncedSearchTerm, sortPriorities, currentPage, sortMode, randomSeed, itemsPerPage);
     
+    // --- ON-DEMAND DATA FETCHING FOR MODALS ---
+    const modalDramaUrls = useMemo(() => 
+        modalStack.filter(item => item.type === 'drama' || item.type === 'reviews').map(item => (item as any).dramaUrl)
+    , [modalStack]);
+
+    const { dramaDetails: modalDramaDetails } = useDramaDetails(modalDramaUrls);
+
     // --- NAVIGATION & MODAL HANDLERS ---
     const handleNavigate = (view: ActiveView) => navigate(`/${view}`);
 
@@ -201,10 +206,10 @@ export default function App() {
             case 'home':
                 return <HomePage dramas={displayDramas} isLoading={isLoading} dataError={dataError} totalDramas={totalDramas} userData={userData} filters={filters} searchTerm={searchTerm} currentPage={currentPage} itemsPerPage={itemsPerPage} isUserLoggedIn={!!currentUser} hasInitiallyLoaded={hasInitiallyLoaded} onSelectDrama={handleSelectDrama} onToggleFavorite={handleToggleFavorite} onSetStatus={handleSetStatus} onSearchChange={setSearchTerm} onPageChange={(p) => updateQuery({ page: String(p) })} onOpenFilters={() => setFilterSidebarOpen(true)} onFiltersChange={handleFiltersChange} onSetReviewAndTrackProgress={handleSetReviewAndTrackProgress} />;
             case 'my-list':
-                if (currentUser) return <MyListPage allDramas={allDramas} userData={userData} onSelectDrama={handleSelectDrama} onToggleFavorite={handleToggleFavorite} onSetStatus={handleSetStatus} onSetReviewAndTrackProgress={handleSetReviewAndTrackProgress} />;
+                if (currentUser) return <MyListPage userData={userData} onSelectDrama={handleSelectDrama} onToggleFavorite={handleToggleFavorite} onSetStatus={handleSetStatus} onSetReviewAndTrackProgress={handleSetReviewAndTrackProgress} />;
                 return null;
             case 'all-reviews':
-                if (currentUser) return <AllReviewsPage allDramas={allDramas} userData={userData} onSelectDrama={handleSelectDrama} />;
+                if (currentUser) return <AllReviewsPage userData={userData} onSelectDrama={handleSelectDrama} />;
                 return null;
             case 'recommendations':
                 if (currentUser) return <RecommendationsPage userData={userData} onSelectDrama={handleSelectDrama} onToggleFavorite={handleToggleFavorite} onSetStatus={handleSetStatus} onSetReviewAndTrackProgress={handleSetReviewAndTrackProgress} />;
@@ -221,8 +226,6 @@ export default function App() {
         return <div className="min-h-screen font-sans flex items-center justify-center bg-brand-primary"><div className="w-16 h-16 border-4 border-dashed rounded-full animate-spin border-brand-accent"></div></div>;
     }
 
-    const dramaMap = useMemo(() => new Map(allDramas.map(d => [d.url, d])), [allDramas]);
-
     return (
         <div className="min-h-screen font-sans">
             <Header onGoHome={() => handleNavigate('home')} onGoToMyList={() => handleNavigate('my-list')} onGoToRecommendations={() => handleNavigate('recommendations')} onGoToAllReviews={() => handleNavigate('all-reviews')} onGoToAdminPanel={() => handleNavigate('admin')} currentUser={currentUser} onLoginClick={() => setAuthModalOpen(true)} onLogout={handleLogout} onOpenChangePassword={() => setChangePasswordModalOpen(true)} theme={theme} toggleTheme={toggleTheme} />
@@ -233,13 +236,13 @@ export default function App() {
             <ConflictResolutionModal isOpen={!!conflictData} data={conflictData} onClose={() => setConflictData(null)} onResolve={resolveConflict} />
             
             {activeModalData?.type === 'drama' && (
-                <DramaDetailModal drama={dramaMap.get(activeModalData.dramaUrl)} onCloseAll={closeAllModals} onPopModal={popModal} onSelectDrama={handleSelectDrama} onSetQuickFilter={handleSetQuickFilter} onSelectActor={handleSelectActor} filters={filters} showBackButton={modalStack.length > 1} currentUser={currentUser} onOpenReviews={handleOpenReviews} />
+                <DramaDetailModal drama={modalDramaDetails.get(activeModalData.dramaUrl)} onCloseAll={closeAllModals} onPopModal={popModal} onSelectDrama={handleSelectDrama} onSetQuickFilter={handleSetQuickFilter} onSelectActor={handleSelectActor} filters={filters} showBackButton={modalStack.length > 1} currentUser={currentUser} onOpenReviews={handleOpenReviews} />
             )}
             {activeModalData?.type === 'cast' && (
                 <CastDetailModal actorName={activeModalData.actorName} onCloseAll={closeAllModals} onPopModal={popModal} onSelectDrama={handleSelectDrama} userData={userData} isUserLoggedIn={!!currentUser} onToggleFavorite={handleToggleFavorite} onSetStatus={handleSetStatus} onSetReviewAndTrackProgress={handleSetReviewAndTrackProgress} showBackButton={modalStack.length > 1} />
             )}
             {activeModalData?.type === 'reviews' && (
-                <EpisodeReviewsModal drama={dramaMap.get(activeModalData.dramaUrl)} userData={userData} onCloseAll={closeAllModals} onPopModal={popModal} onSetEpisodeReview={handleSetEpisodeReview} showBackButton={modalStack.length > 1} />
+                <EpisodeReviewsModal drama={modalDramaDetails.get(activeModalData.dramaUrl)} userData={userData} onCloseAll={closeAllModals} onPopModal={popModal} onSetEpisodeReview={handleSetEpisodeReview} showBackButton={modalStack.length > 1} />
             )}
             
             {currentUser && <BottomNavBar activeView={activeView} onNavigate={handleNavigate} currentUser={currentUser} />}
