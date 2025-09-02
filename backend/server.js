@@ -114,7 +114,7 @@ async function runMigrations() {
                 await connection.execute('INSERT INTO migrations (name) VALUES (?)', [migration.name]);
                 await connection.commit();
             } catch (err) {
-                await connection.rollback();
+                await connection.rollback(); 
                 throw err; 
             } finally {
                 connection.release();
@@ -244,44 +244,69 @@ app.get('/api/health', (req, res) => res.status(200).json({ status: 'ok' }));
 app.get('/api/dramas/metadata', apiLimiter, async (req, res) => res.json(await getMetadata()));
 
 app.get('/api/dramas', apiLimiter, async (req, res) => {
-    const { page = '1', limit = '24', search = '', minRating = '0', genres = '', excludeGenres = '', tags = '', excludeTags = '', countries = '', cast = '', sort = '[]', sortMode = 'weighted' } = req.query;
-    let whereClauses = ['1=1'], params = [];
-    if (search) { whereClauses.push('title LIKE ?'); params.push(`%${search}%`); }
-    if (parseFloat(minRating) > 0) { whereClauses.push(`JSON_EXTRACT(data, '$.rating') >= ?`); params.push(parseFloat(minRating)); }
-    if (countries) { whereClauses.push(`JSON_EXTRACT(data, '$.country') IN (?)`); params.push(countries.split(',')); }
-    if (genres) genres.split(',').forEach(g => { whereClauses.push(`JSON_CONTAINS(data->'$.genres', CAST(? AS JSON))`); params.push(JSON.stringify(g)); });
-    if (excludeGenres) excludeGenres.split(',').forEach(g => { whereClauses.push(`NOT JSON_CONTAINS(data->'$.genres', CAST(? AS JSON))`); params.push(JSON.stringify(g)); });
-    if (tags) tags.split(',').forEach(t => { whereClauses.push(`JSON_CONTAINS(data->'$.tags', CAST(? AS JSON))`); params.push(JSON.stringify(t)); });
-    if (excludeTags) excludeTags.split(',').forEach(t => { whereClauses.push(`NOT JSON_CONTAINS(data->'$.tags', CAST(? AS JSON))`); params.push(JSON.stringify(t)); });
-    if (cast) cast.split(',').forEach(actor => { whereClauses.push(`JSON_SEARCH(data, 'one', ?, NULL, '$.cast[*].actor_name') IS NOT NULL`); params.push(actor); });
-    const whereString = whereClauses.join(' AND ');
-    const [[{ total }]] = await db.query(`SELECT COUNT(*) as total FROM dramas WHERE ${whereString}`, params);
-    
-    // Whitelist for sort keys and orders to prevent SQL injection.
-    const allowedSortKeys = ['rating', 'popularity_rank', 'watchers', 'aired_date'];
-    const allowedSortOrders = ['asc', 'desc'];
-    let orderBy = `JSON_EXTRACT(data, '$.popularity_rank') ASC`;
+    try {
+        const { page = '1', limit = '24', search = '', minRating = '0', genres = '', excludeGenres = '', tags = '', excludeTags = '', countries = '', cast = '', sort = '[]', sortMode = 'weighted' } = req.query;
+        let whereClauses = ['1=1'], params = [];
+        if (search) { whereClauses.push('title LIKE ?'); params.push(`%${search}%`); }
+        if (parseFloat(minRating) > 0) { whereClauses.push(`JSON_EXTRACT(data, '$.rating') >= ?`); params.push(parseFloat(minRating)); }
+        if (countries) { whereClauses.push(`JSON_EXTRACT(data, '$.country') IN (?)`); params.push(countries.split(',')); }
+        if (genres) genres.split(',').forEach(g => { whereClauses.push(`JSON_CONTAINS(data->'$.genres', CAST(? AS JSON))`); params.push(JSON.stringify(g)); });
+        if (excludeGenres) excludeGenres.split(',').forEach(g => { whereClauses.push(`NOT JSON_CONTAINS(data->'$.genres', CAST(? AS JSON))`); params.push(JSON.stringify(g)); });
+        if (tags) tags.split(',').forEach(t => { whereClauses.push(`JSON_CONTAINS(data->'$.tags', CAST(? AS JSON))`); params.push(JSON.stringify(t)); });
+        if (excludeTags) excludeTags.split(',').forEach(t => { whereClauses.push(`NOT JSON_CONTAINS(data->'$.tags', CAST(? AS JSON))`); params.push(JSON.stringify(t)); });
+        if (cast) cast.split(',').forEach(actor => { whereClauses.push(`JSON_SEARCH(data, 'one', ?, NULL, '$.cast[*].actor_name') IS NOT NULL`); params.push(actor); });
+        const whereString = whereClauses.join(' AND ');
+        const [[{ total }]] = await db.query(`SELECT COUNT(*) as total FROM dramas WHERE ${whereString}`, params);
+        
+        const allowedSortKeys = ['rating', 'popularity_rank', 'watchers', 'aired_date'];
+        const allowedSortOrders = ['asc', 'desc'];
+        let orderBy = `CAST(JSON_EXTRACT(data, '$.popularity_rank') AS UNSIGNED) ASC`; // Default sort
 
-    if (sortMode === 'random') {
-        orderBy = 'RAND()';
-    } else {
-        const sortPriorities = JSON.parse(sort);
-        if (sortPriorities.length > 0) {
-            const p = sortPriorities[0];
-            if (allowedSortKeys.includes(p.key) && allowedSortOrders.includes(p.order)) {
-                const order = p.order.toUpperCase();
-                // Popularity is stored as lower-is-better, so we flip the order.
-                if (p.key === 'popularity_rank') {
-                    orderBy = `JSON_EXTRACT(data, '$.popularity_rank') ${order === 'ASC' ? 'DESC' : 'ASC'}`;
-                } else {
-                    orderBy = `JSON_EXTRACT(data, '$.${p.key}') ${order}`;
+        if (sortMode === 'random') {
+            orderBy = 'RAND()';
+        } else {
+            try {
+                const sortPriorities = JSON.parse(sort);
+                if (Array.isArray(sortPriorities) && sortPriorities.length > 0) {
+                    const orderByParts = sortPriorities
+                        .map(p => {
+                            if (!p || typeof p !== 'object' || !p.key || !p.order || !allowedSortKeys.includes(p.key) || !allowedSortOrders.includes(p.order)) {
+                                return null;
+                            }
+                            const order = p.order.toUpperCase();
+                            let columnExpression;
+                            let finalOrder = order;
+
+                            if (p.key === 'aired_date') {
+                                columnExpression = `STR_TO_DATE(SUBSTRING_INDEX(JSON_UNQUOTE(JSON_EXTRACT(data, '$.aired_date')), ' - ', 1), '%b %d, %Y')`;
+                            } else {
+                                const castType = p.key === 'rating' ? 'DECIMAL(10,1)' : 'UNSIGNED';
+                                columnExpression = `CAST(JSON_EXTRACT(data, '$.${p.key}') AS ${castType})`;
+                            }
+                            
+                            if (p.key === 'popularity_rank') {
+                                finalOrder = order === 'ASC' ? 'DESC' : 'ASC';
+                            }
+                            
+                            return `${columnExpression} ${finalOrder}`;
+                        })
+                        .filter(Boolean);
+
+                    if (orderByParts.length > 0) {
+                        orderBy = orderByParts.join(', ');
+                    }
                 }
+            } catch (e) {
+                console.warn("Could not parse 'sort' query parameter. Using default sort.");
             }
         }
+        const pageNum = parseInt(page), limitNum = parseInt(limit), offset = (pageNum - 1) * limitNum;
+        const [rows] = await db.query(`SELECT url, title, data FROM dramas WHERE ${whereString} ORDER BY ${orderBy} LIMIT ? OFFSET ?`, [...params, limitNum, offset]);
+        res.json({ totalItems: total, dramas: rows.map(r => ({ ...JSON.parse(r.data), url: r.url, title: r.title })), currentPage: pageNum, totalPages: Math.ceil(total / limitNum) });
+    } catch (err) {
+        console.error("Error in /api/dramas:", err);
+        res.status(500).json({ message: "An error occurred while fetching dramas." });
     }
-    const pageNum = parseInt(page), limitNum = parseInt(limit), offset = (pageNum - 1) * limitNum;
-    const [rows] = await db.query(`SELECT url, title, data FROM dramas WHERE ${whereString} ORDER BY ${orderBy} LIMIT ? OFFSET ?`, [...params, limitNum, offset]);
-    res.json({ totalItems: total, dramas: rows.map(r => ({ ...JSON.parse(r.data), url: r.url, title: r.title })), currentPage: pageNum, totalPages: Math.ceil(total / limitNum) });
 });
 
 app.get('/api/dramas/by-actor/:actorName', apiLimiter, async (req, res) => {
