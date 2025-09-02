@@ -5,9 +5,11 @@
  */
 
 /**
- * The number of drama cards to display on a single page. Used for pagination logic.
+ * The base number of drama cards to display on a single page. Used for pagination logic.
+ * The actual number of items per page will be dynamically adjusted based on screen size
+ * to ensure full rows are always displayed.
  */
-export const ITEMS_PER_PAGE = 24;
+export const BASE_ITEMS_PER_PAGE = 24;
 
 /**
  * A collection of keys used for storing and retrieving data from the browser's local storage.

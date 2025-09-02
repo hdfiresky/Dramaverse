@@ -7,7 +7,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Drama, Filters, SortPriority } from '../types';
 import { BACKEND_MODE, API_BASE_URL } from '../config';
-import { ITEMS_PER_PAGE } from './lib/constants';
 
 /**
  * A custom hook that serves as the single source of truth for drama data and its derived states.
@@ -18,9 +17,10 @@ import { ITEMS_PER_PAGE } from './lib/constants';
  * @param {number} currentPage - The current page number for pagination.
  * @param {'weighted' | 'random'} sortMode - The sorting strategy to apply.
  * @param {number} randomSeed - A changing value to trigger re-randomization.
+ * @param {number} itemsPerPage - The dynamic number of items to show per page.
  * @returns An object containing the raw drama list, the filtered/sorted list, loading/error states, and filter metadata.
  */
-export const useDramas = (filters: Filters, searchTerm: string, sortPriorities: SortPriority[], currentPage: number, sortMode: 'weighted' | 'random', randomSeed: number) => {
+export const useDramas = (filters: Filters, searchTerm: string, sortPriorities: SortPriority[], currentPage: number, sortMode: 'weighted' | 'random', randomSeed: number, itemsPerPage: number) => {
     // This state holds the full, unprocessed list of dramas for FRONTEND-ONLY mode.
     const [rawDramas, setRawDramas] = useState<Drama[]>([]);
     
@@ -115,7 +115,7 @@ export const useDramas = (filters: Filters, searchTerm: string, sortPriorities: 
                 try {
                     const params = new URLSearchParams({
                         page: String(currentPage),
-                        limit: String(ITEMS_PER_PAGE),
+                        limit: String(itemsPerPage),
                         search: searchTerm,
                         minRating: String(filters.minRating),
                         sortMode, // Pass the sort mode to the backend
@@ -196,7 +196,7 @@ export const useDramas = (filters: Filters, searchTerm: string, sortPriorities: 
                     result = [...result].sort((a, b) => a.popularity_rank - b.popularity_rank);
                 }
 
-                const paginatedResult = result.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE);
+                const paginatedResult = result.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
                 setDisplayDramas(paginatedResult);
                 setTotalDramas(result.length);
             }
@@ -213,6 +213,7 @@ export const useDramas = (filters: Filters, searchTerm: string, sortPriorities: 
         currentPage,
         sortMode,
         randomSeed,
+        itemsPerPage,
     ]);
 
     return {

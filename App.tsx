@@ -4,14 +4,16 @@
  * and rendering the primary layout and components. This component is responsible for
  * connecting the data and logic from hooks to the presentational components.
  */
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import { Filters, SortPriority, UserData, UserDramaStatus, Drama } from './types';
 import { useLocalStorage } from './hooks/useLocalStorage';
 import { useUIState } from './hooks/useUIState';
 import { useAuth } from './hooks/useAuth';
 import { useDramas } from './hooks/useDramas';
 import { useDebounce } from './hooks/useDebounce';
-import { LOCAL_STORAGE_KEYS, ITEMS_PER_PAGE } from './hooks/lib/constants';
+import { useWindowSize } from './hooks/useWindowSize';
+// FIX: Import LOCAL_STORAGE_KEYS to be used with useLocalStorage hook.
+import { BASE_ITEMS_PER_PAGE, LOCAL_STORAGE_KEYS } from './hooks/lib/constants';
 import { BACKEND_MODE } from './config';
 
 
@@ -74,6 +76,24 @@ export default function App() {
     // A seed value that can be changed to trigger a new randomization.
     const [randomSeed, setRandomSeed] = useState(() => Date.now());
 
+    // Dynamically calculate the number of items per page to ensure full rows.
+    const { width } = useWindowSize();
+    const itemsPerPage = useMemo(() => {
+        const baseCount = BASE_ITEMS_PER_PAGE;
+        let columns = 1;
+        if (width >= 1536) columns = 6;      // 2xl from Tailwind config
+        else if (width >= 1280) columns = 5; // xl
+        else if (width >= 1024) columns = 4; // lg
+        else if (width >= 768) columns = 3;  // md
+        else if (width >= 640) columns = 2;  // sm
+        
+        const remainder = baseCount % columns;
+        if (remainder === 0) return baseCount;
+        
+        // Adjust to fill the last row completely
+        return baseCount + (columns - remainder);
+    }, [width]);
+
     // `useDramas`: Fetches and processes all drama data, including filtering and sorting.
     const { 
         displayDramas, 
@@ -83,7 +103,7 @@ export default function App() {
         isLoading, 
         dataError,
         hasInitiallyLoaded
-    } = useDramas(filters, debouncedSearchTerm, sortPriorities, currentPage, sortMode, randomSeed);
+    } = useDramas(filters, debouncedSearchTerm, sortPriorities, currentPage, sortMode, randomSeed, itemsPerPage);
 
     // Effect to reset pagination to the first page whenever the data set changes due to new filters, search, or sorting.
     useEffect(() => {
@@ -187,7 +207,7 @@ export default function App() {
                         filters={filters}
                         searchTerm={searchTerm}
                         currentPage={currentPage}
-                        itemsPerPage={ITEMS_PER_PAGE}
+                        itemsPerPage={itemsPerPage}
                         isUserLoggedIn={!!currentUser}
                         hasInitiallyLoaded={hasInitiallyLoaded}
                         onSelectDrama={handleSelectDrama}
