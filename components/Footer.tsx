@@ -14,7 +14,7 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate }) => (
             <button onClick={() => onNavigate('terms-of-service')} className="underline hover:text-brand-accent transition-colors">Terms of Service</button>
         </div>
         <p className="text-xs text-slate-500 mt-2">
-            Drama information is aggregated from publicly available data. All content copyrights belong to their respective owners.
+            This is a non-commercial fan project. Drama information is sourced from publicly available data. All content copyrights belong to their respective owners.
         </p>
     </footer>
 );
