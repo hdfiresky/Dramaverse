@@ -110,9 +110,13 @@ export const HomePage: React.FC<HomePageProps> = ({
             <ActiveFiltersDisplay filters={filters} onFiltersChange={onFiltersChange} />
 
             {/* Result count and message - now shows a loading state */}
-            <div className="mb-4 text-sm text-brand-text-secondary h-5">
+            <div className="mb-4 text-sm text-brand-text-secondary h-5 flex items-center">
                  {isLoading ? (
-                    <div className="h-5 w-48 bg-slate-700/50 rounded-md animate-pulse"></div>
+                    searchTerm ? (
+                        <span className="animate-pulse">Searching...</span>
+                    ) : (
+                        <div className="h-5 w-48 bg-slate-700/50 rounded-md animate-pulse"></div>
+                    )
                  ) : totalDramas > 0 ? (
                     <span>
                         Showing{' '}
@@ -123,7 +127,7 @@ export const HomePage: React.FC<HomePageProps> = ({
                         <strong>{totalDramas}</strong> dramas
                     </span>
                 ) : (
-                    <span>No dramas found matching your criteria.</span>
+                    hasInitiallyLoaded && <span>No dramas found matching your criteria.</span>
                 )}
             </div>
 
