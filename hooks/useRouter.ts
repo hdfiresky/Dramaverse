@@ -8,7 +8,7 @@ import { useLocalStorage } from './useLocalStorage';
 import { ModalStackItem } from '../types';
 import { BASE_PATH } from '../config';
 
-export type ActiveView = 'home' | 'my-list' | 'all-reviews' | 'admin' | 'recommendations' | 'privacy' | 'terms';
+export type ActiveView = 'home' | 'my-list' | 'all-reviews' | 'admin' | 'recommendations' | 'privacy-policy' | 'terms-of-service';
 
 // Helper to safely encode and decode the modal stack for the URL.
 const encodeModalStack = (stack: ModalStackItem[]): string => {
@@ -57,7 +57,7 @@ export const useRouter = () => {
     const activeView = useMemo<ActiveView>(() => {
         const path = location.pathname.replace(BASE_PATH, '').replace(/\/$/, '');
         const view = path.split('/')[0] as ActiveView;
-        const validViews: ActiveView[] = ['home', 'my-list', 'all-reviews', 'admin', 'recommendations', 'privacy', 'terms'];
+        const validViews: ActiveView[] = ['home', 'my-list', 'all-reviews', 'admin', 'recommendations', 'privacy-policy', 'terms-of-service'];
         if (validViews.includes(view)) return view;
         return 'home'; // Default to home
     }, [location.pathname]);

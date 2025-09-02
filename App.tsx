@@ -98,9 +98,9 @@ const TermsOfServiceContent = () => (
         <p>You are solely responsible for the content you post, such as episode reviews. By posting content, you grant us a non-exclusive, worldwide, royalty-free license to display it within the application. You agree not to post content that is unlawful, offensive, or infringing on others' rights. We reserve the right to remove any content at our discretion.</p>
 
         <h2>4. Drama Information Disclaimer (Important)</h2>
-        <p>Dramaverse is a fan-made, non-commercial application for personal entertainment and discovery purposes.</p>
+        <p>Dramaverse is an application for personal entertainment and discovery purposes.</p>
         <ul>
-            <li><strong>Data Source:</strong> The drama information displayed in this application, including titles, synopses, images, and cast details, is aggregated from publicly available sources on the internet, such as <a href="https://mydramalist.com" target="_blank" rel="noopener noreferrer">MyDramaList.com</a>.</li>
+            <li><strong>Data Source:</strong> The drama information displayed in this application, including titles, synopses, images, and cast details, is aggregated from publicly available sources, including community-driven drama databases.</li>
             <li><strong>No Ownership Claimed:</strong> We do not claim ownership of this data. All copyrights and trademarks for the drama-related content belong to their respective owners.</li>
             <li><strong>No Guarantee of Accuracy:</strong> While we strive for accuracy, the information is provided "as is" without any warranties.</li>
             <li><strong>Fair Use:</strong> This application is intended to function as a highly-interactive discovery tool, and its use of this data is believed to fall under the principles of fair use. If you are a content owner and believe your work is being used improperly, please contact us at: legal@dramaverse.example.</li>
@@ -143,7 +143,7 @@ export default function App() {
     
     // --- ROUTE PROTECTION ---
     useEffect(() => {
-        const publicViews: ActiveView[] = ['home', 'privacy', 'terms'];
+        const publicViews: ActiveView[] = ['home', 'privacy-policy', 'terms-of-service'];
         const currentViewIsPublic = publicViews.includes(activeView);
         const currentViewIsAdmin = activeView === 'admin';
 
@@ -339,9 +339,9 @@ export default function App() {
             case 'admin':
                 if (currentUser?.isAdmin) return <AdminPanel currentUser={currentUser} />;
                 return null;
-            case 'privacy':
+            case 'privacy-policy':
                 return <LegalPage title="Privacy Policy"><PrivacyPolicyContent /></LegalPage>;
-            case 'terms':
+            case 'terms-of-service':
                 return <LegalPage title="Terms of Service"><TermsOfServiceContent /></LegalPage>;
             default:
                 return null;

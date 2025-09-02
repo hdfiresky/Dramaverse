@@ -117,11 +117,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onLogin, 
                 {!isLogin && (
                     <p className="text-center text-xs text-brand-text-secondary mt-4">
                         By registering, you agree to our{' '}
-                        <a href={`${BASE_PATH}terms`} target="_blank" rel="noopener noreferrer" className="underline hover:text-brand-accent">
+                        <a href={`${BASE_PATH}terms-of-service`} target="_blank" rel="noopener noreferrer" className="underline hover:text-brand-accent">
                             Terms of Service
                         </a>{' '}
                         and{' '}
-                        <a href={`${BASE_PATH}privacy`} target="_blank" rel="noopener noreferrer" className="underline hover:text-brand-accent">
+                        <a href={`${BASE_PATH}privacy-policy`} target="_blank" rel="noopener noreferrer" className="underline hover:text-brand-accent">
                             Privacy Policy
                         </a>.
                     </p>

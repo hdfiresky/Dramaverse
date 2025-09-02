@@ -9,12 +9,12 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate }) => (
         <div className="text-sm text-brand-text-secondary">
             <span>© {new Date().getFullYear()} Dramaverse. All Rights Reserved.</span>
             <span className="mx-2">|</span>
-            <button onClick={() => onNavigate('/privacy')} className="underline hover:text-brand-accent transition-colors">Privacy Policy</button>
+            <button onClick={() => onNavigate('privacy-policy')} className="underline hover:text-brand-accent transition-colors">Privacy Policy</button>
             <span className="mx-2">|</span>
-            <button onClick={() => onNavigate('/terms')} className="underline hover:text-brand-accent transition-colors">Terms of Service</button>
+            <button onClick={() => onNavigate('terms-of-service')} className="underline hover:text-brand-accent transition-colors">Terms of Service</button>
         </div>
         <p className="text-xs text-slate-500 mt-2">
-            This is a non-commercial fan project. Drama information is sourced from publicly available data.
+            Drama information is aggregated from publicly available data. All content copyrights belong to their respective owners.
         </p>
     </footer>
 );
