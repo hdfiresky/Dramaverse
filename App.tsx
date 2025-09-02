@@ -78,7 +78,8 @@ export default function App() {
         allDramas, 
         metadata, 
         isLoading, 
-        dataError 
+        dataError,
+        hasInitiallyLoaded
     } = useDramas(filters, debouncedSearchTerm, sortPriorities, currentPage, sortMode, randomSeed);
 
     // Effect to reset pagination to the first page whenever the data set changes due to new filters, search, or sorting.
@@ -172,6 +173,7 @@ export default function App() {
                         currentPage={currentPage}
                         itemsPerPage={ITEMS_PER_PAGE}
                         isUserLoggedIn={!!currentUser}
+                        hasInitiallyLoaded={hasInitiallyLoaded}
                         onSelectDrama={handleSelectDrama}
                         onToggleFavorite={handleToggleFavorite}
                         onSetStatus={handleSetStatus}

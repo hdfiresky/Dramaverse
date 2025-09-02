@@ -31,6 +31,8 @@ interface HomePageProps {
     itemsPerPage: number;
     /** A boolean indicating if a user is logged in. */
     isUserLoggedIn: boolean;
+    /** A flag indicating if the initial drama list has been loaded at least once. */
+    hasInitiallyLoaded: boolean;
     /** Callback to open the detail modal for a selected drama. */
     onSelectDrama: (drama: Drama) => void;
     /** Callback to toggle a drama's favorite status. */
@@ -67,6 +69,7 @@ export const HomePage: React.FC<HomePageProps> = ({
     currentPage,
     itemsPerPage,
     isUserLoggedIn,
+    hasInitiallyLoaded,
     onSelectDrama,
     onToggleFavorite,
     onSetStatus,
@@ -108,7 +111,7 @@ export const HomePage: React.FC<HomePageProps> = ({
             {/* Result count and message - now shows a loading state */}
             <div className="mb-4 text-sm text-brand-text-secondary h-5">
                  {isLoading ? (
-                    <span className="animate-pulse">Searching...</span>
+                    <span className="animate-pulse">{!hasInitiallyLoaded ? 'Loading dramas...' : 'Searching...'}</span>
                  ) : totalDramas > 0 ? (
                     <span>
                         Showing{' '}

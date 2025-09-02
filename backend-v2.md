@@ -44,9 +44,9 @@ This document provides a comprehensive guide to setting up and running the optio
     npm init -y
     ```
 
-3.  **Install Dependencies**: Install the necessary packages for the server, including the `mysql2` driver.
+3.  **Install Dependencies**: Install the necessary packages for the server, including the `mysql2` driver and `multer` for file uploads.
     ```bash
-    npm install express mysql2 cors bcryptjs jsonwebtoken socket.io helmet express-rate-limit dotenv cookie-parser cookie
+    npm install express mysql2 cors bcryptjs jsonwebtoken socket.io helmet express-rate-limit dotenv cookie-parser cookie multer
     ```
 
 4.  **Install Development Dependency**: Install `nodemon` for automatic server restarts during development.
@@ -115,6 +115,7 @@ This document provides a comprehensive guide to setting up and running the optio
     .env
     node_modules/
     npm-debug.log*
+    backups/
     ```
 
 8.  **Configure `package.json`**: Open `package.json` and add the following `scripts`:
@@ -156,13 +157,15 @@ const mysql = require('mysql2/promise');
 const cors = require('cors');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const fs = require('fs');
+const fs = require('fs').promises;
+const path = require('path');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const dotenv = require('dotenv');
 const cookieParser = require('cookie-parser');
 const cookie = require('cookie');
 const crypto = require('crypto');
+const multer = require('multer');
 
 // --- CONFIGURATION ---
 dotenv.config();
@@ -170,6 +173,9 @@ dotenv.config();
 const PORT = process.env.PORT || 3001;
 const JWT_SECRET = process.env.JWT_SECRET;
 const SOCKET_IO_PATH = process.env.SOCKET_IO_PATH || '/socket.io/';
+const DRAMAS_JSON_PATH = path.join(__dirname, 'dramas.json');
+const BACKUPS_DIR = path.join(__dirname, 'backups');
+
 
 if (!JWT_SECRET || JWT_SECRET === "replace-this-with-a-very-long-and-random-string") {
     console.error("FATAL ERROR: JWT_SECRET is not set or is set to the default value in the .env file.");
@@ -239,8 +245,6 @@ const migrations = [
             );
         `
     },
-    // Split the ALTER TABLE statements into separate, more atomic migrations.
-    // This makes them individually transactional and easier to debug.
     {
         name: '002_add_updated_at_to_favorites',
         up: `ALTER TABLE user_favorites ADD COLUMN updated_at BIGINT;`
@@ -287,13 +291,9 @@ async function runMigrations() {
                     try {
                         await connection.execute(statement);
                     } catch (statementErr) {
-                        // If the error is specifically about a duplicate column, we can ignore it
-                        // as it means a previous, failed migration attempt partially succeeded.
-                        // This makes the migration script idempotent for column additions.
                         if (statementErr.code === 'ER_DUP_FIELDNAME') {
                             console.warn(`  ...WARN: Column in statement already exists, likely from a previous run. Skipping. Statement: "${statement}"`);
                         } else {
-                            // For any other error, re-throw to trigger the rollback.
                             throw statementErr;
                         }
                     }
@@ -331,8 +331,12 @@ async function seedAdminUser() {
 }
 
 async function seedDatabase() {
-    if (!fs.existsSync('dramas.json')) throw new Error('dramas.json not found.');
-    const dramas = JSON.parse(fs.readFileSync('dramas.json'));
+    try {
+        await fs.access(DRAMAS_JSON_PATH);
+    } catch {
+         throw new Error('dramas.json not found.');
+    }
+    const dramas = JSON.parse(await fs.readFile(DRAMAS_JSON_PATH));
     const sql = "INSERT INTO dramas (url, title, data) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE title=VALUES(title), data=VALUES(data)";
     for (const drama of dramas) {
         const { url, title, ...rest } = drama;
@@ -423,6 +427,8 @@ app.use(cors(corsOptions));
 app.use(express.json());
 app.use(cookieParser());
 const io = new Server(server, { cors: corsOptions, path: SOCKET_IO_PATH });
+const upload = multer({ storage: multer.memoryStorage() });
+
 
 io.use((socket, next) => {
     const token = cookie.parse(socket.handshake.headers.cookie || '').token;
@@ -836,10 +842,132 @@ app.post('/api/admin/users/:id/reset-password', async (req, res) => {
     res.json({ newPassword });
 });
 
+// --- ADMIN DRAMA MANAGEMENT ENDPOINTS ---
+
+app.post('/api/admin/dramas/upload-preview', upload.single('dramaFile'), async (req, res) => {
+    if (!req.file) return res.status(400).json({ message: 'No file uploaded.' });
+    
+    try {
+        const uploadedDramas = JSON.parse(req.file.buffer.toString('utf-8'));
+        if (!Array.isArray(uploadedDramas)) throw new Error('Uploaded file is not a JSON array.');
+        
+        const [existingRows] = await db.query('SELECT url, data FROM dramas');
+        const existingDramas = new Map(existingRows.map(r => [r.url, r.data]));
+
+        const results = { new: [], updated: [], unchanged: [], errors: [] };
+
+        for (const [index, drama] of uploadedDramas.entries()) {
+            if (!drama.url || !drama.title) {
+                results.errors.push({ index, drama, error: 'Missing required fields: url, title.' });
+                continue;
+            }
+            if (existingDramas.has(drama.url)) {
+                const existingData = existingDramas.get(drama.url);
+                const { url, title, ...newData } = drama;
+                if (JSON.stringify(newData) === JSON.stringify(existingData)) {
+                    results.unchanged.push(drama);
+                } else {
+                    results.updated.push({ old: {url, title, ...existingData}, new: drama });
+                }
+            } else {
+                results.new.push(drama);
+            }
+        }
+        res.json(results);
+    } catch (error) {
+        res.status(400).json({ message: `Failed to process file: ${error.message}` });
+    }
+});
+
+app.post('/api/admin/dramas/import', async (req, res) => {
+    const { dramasToImport } = req.body;
+    if (!Array.isArray(dramasToImport)) return res.status(400).json({ message: 'Invalid payload.' });
+
+    const connection = await db.getConnection();
+    try {
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+        const backupFilename = `dramas-${timestamp}.json`;
+        const backupPath = path.join(BACKUPS_DIR, backupFilename);
+        const currentData = await fs.readFile(DRAMAS_JSON_PATH, 'utf-8');
+        await fs.writeFile(backupPath, currentData);
+
+        await connection.beginTransaction();
+        const sql = "INSERT INTO dramas (url, title, data) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE title=VALUES(title), data=VALUES(data)";
+        for (const drama of dramasToImport) {
+            const { url, title, ...rest } = drama;
+            await connection.execute(sql, [url, title, JSON.stringify(rest)]);
+        }
+        await connection.commit();
+
+        const [allRows] = await connection.query('SELECT url, title, data FROM dramas');
+        const fullData = allRows.map(r => ({ url: r.url, title: r.title, ...r.data }));
+        await fs.writeFile(DRAMAS_JSON_PATH, JSON.stringify(fullData, null, 2));
+
+        await loadDramasIntoMemory();
+
+        res.json({ success: true, message: `${dramasToImport.length} dramas imported successfully.`, backupFilename });
+    } catch (error) {
+        await connection.rollback();
+        res.status(500).json({ message: `Import failed: ${error.message}` });
+    } finally {
+        connection.release();
+    }
+});
+
+app.get('/api/admin/dramas/backups', async (req, res) => {
+    try {
+        const files = await fs.readdir(BACKUPS_DIR);
+        const backups = await Promise.all(files.filter(f => f.endsWith('.json')).map(async file => {
+            const stats = await fs.stat(path.join(BACKUPS_DIR, file));
+            return { filename: file, createdAt: stats.birthtime };
+        }));
+        res.json(backups.sort((a,b) => b.createdAt - a.createdAt));
+    } catch (error) {
+        res.json([]);
+    }
+});
+
+app.get('/api/admin/dramas/download/:filename', (req, res) => {
+    const { filename } = req.params;
+    const isBackup = filename.startsWith('dramas-') && filename.endsWith('.json');
+    const isMain = filename === 'dramas.json';
+
+    if (!isBackup && !isMain) return res.status(400).json({ message: 'Invalid filename.' });
+    
+    const filePath = isBackup ? path.join(BACKUPS_DIR, filename) : DRAMAS_JSON_PATH;
+    res.download(filePath, filename, (err) => {
+        if (err) res.status(404).json({ message: 'File not found.' });
+    });
+});
+
+app.post('/api/admin/dramas/rollback', async (req, res) => {
+    const { filename } = req.body;
+    if (!filename || !filename.startsWith('dramas-') || !filename.endsWith('.json')) {
+        return res.status(400).json({ message: 'Invalid backup filename.' });
+    }
+    const backupPath = path.join(BACKUPS_DIR, filename);
+    try {
+        await fs.access(backupPath);
+        const backupData = JSON.parse(await fs.readFile(backupPath, 'utf-8'));
+        if (!Array.isArray(backupData)) throw new Error("Backup file is not a valid drama array.");
+
+        await fs.copyFile(backupPath, DRAMAS_JSON_PATH);
+        await db.execute('DELETE FROM dramas');
+        await seedDatabase();
+        await loadDramasIntoMemory();
+        
+        res.json({ success: true, message: `Successfully rolled back to ${filename}.`});
+    } catch (error) {
+        res.status(500).json({ message: `Rollback failed: ${error.message}` });
+    }
+});
+
+
 app.use((err, req, res, next) => res.status(500).json({ message: 'Server error.' }));
 
 async function startServer() {
     try {
+        await fs.mkdir(BACKUPS_DIR, { recursive: true });
         await initializeDatabase();
         await runMigrations();
         await seedAdminUser();
@@ -893,4 +1021,36 @@ process.on('SIGINT', async () => {
     npm run seed
     ```
 
-Your MySQL-powered backend is now running! The frontend will connect to it as long as `BACKEND_MODE` is enabled in your frontend configuration.
+Your MySQL-powered backend is now running! The frontend will connect to it as long as `BACKEND_MODE` is enabled in your frontend configuration.## 6. Production Deployment with PM2
+
+For production, it is highly recommended to use a process manager like PM2 and to set your `JWT_SECRET` as an environment variable rather than in the `.env` file.
+
+1.  **Install PM2 Globally**:
+    ```bash
+    npm install pm2 -g
+    ```
+
+2.  **Start the Production Server**:
+    From your `/backend` directory, run the following command. The server will automatically pick up the `PORT` from your `.env` file, but we will override the `JWT_SECRET` directly on the command line for better security.
+
+    ```bash
+    JWT_SECRET="your-long-random-super-secret-string-for-production" pm2 start server.js -i max --name "dramaverse-backend"
+    ```
+    -   `JWT_SECRET=...`: **Crucially, replace this with your own long, random secret.** Setting it here overrides any value in `.env`.
+    -   `-i max`: Enables cluster mode to use all available CPU cores.
+    -   `--name "..."`: Gives the process a memorable name in PM2.
+
+3.  **Useful PM2 Commands**:
+    -   `pm2 list`: See the status of all managed applications.
+    -   `pm2 monit`: Open a real-time dashboard to monitor CPU and memory usage.
+    -   `pm2 logs dramaverse-backend`: View the logs for your app.
+    -   `pm2 restart dramaverse-backend`: Gracefully restart the app.
+    -   `pm2 stop dramaverse-backend`: Stop the app.
+    -   `pm2 delete dramaverse-backend`: Stop and remove the app from PM2's list.
+
+## 7. Security & Nginx
+
+The security best practices and Nginx reverse proxy configurations from the previous guide are still highly recommended and can be used without any changes. Remember to:
+-   Update the `CORS_ALLOWED_ORIGINS` variable in your `.env` file for your production domain.
+-   Use a strong, secret `JWT_SECRET` set via an environment variable.
+-   Run your Node.js application behind a reverse proxy like Nginx in production.

@@ -37,6 +37,8 @@ export const useDramas = (filters: Filters, searchTerm: string, sortPriorities: 
     // This state holds the total count of dramas matching the current filters,
     // which is essential for the pagination component.
     const [totalDramas, setTotalDramas] = useState(0);
+    const [hasInitiallyLoaded, setHasInitiallyLoaded] = useState(false);
+
 
     // Effect to fetch initial data. Behavior differs based on the application mode.
     useEffect(() => {
@@ -68,6 +70,7 @@ export const useDramas = (filters: Filters, searchTerm: string, sortPriorities: 
                 if (!BACKEND_MODE) {
                     setIsLoading(false);
                 }
+                setHasInitiallyLoaded(true);
             }
         };
         fetchInitialData();
@@ -227,5 +230,6 @@ export const useDramas = (filters: Filters, searchTerm: string, sortPriorities: 
         metadata,
         isLoading,
         dataError,
+        hasInitiallyLoaded,
     };
 };

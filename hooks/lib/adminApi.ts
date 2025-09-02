@@ -237,3 +237,47 @@ export const resetUserPassword = async (userId: number): Promise<{ newPassword: 
         return { newPassword };
     }
 };
+
+export const uploadDramaFilePreview = async (file: File) => {
+    if (!BACKEND_MODE) throw new Error("This feature is only available in backend mode.");
+    const formData = new FormData();
+    formData.append('dramaFile', file);
+    const res = await fetch(`${API_BASE_URL}/admin/dramas/upload-preview`, {
+        method: 'POST',
+        body: formData,
+        credentials: 'include',
+    });
+    await handleApiError(res, 'Failed to analyze drama file.');
+    return res.json();
+};
+
+export const importDramas = async (dramasToImport: any[]) => {
+    if (!BACKEND_MODE) throw new Error("This feature is only available in backend mode.");
+    const res = await fetch(`${API_BASE_URL}/admin/dramas/import`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dramasToImport }),
+        credentials: 'include',
+    });
+    await handleApiError(res, 'Failed to import dramas.');
+    return res.json();
+};
+
+export const fetchBackups = async (): Promise<{ filename: string; createdAt: string }[]> => {
+    if (!BACKEND_MODE) return [];
+    const res = await fetch(`${API_BASE_URL}/admin/dramas/backups`, { credentials: 'include' });
+    await handleApiError(res, 'Failed to fetch backups.');
+    return res.json();
+};
+
+export const rollbackToBackup = async (filename: string) => {
+    if (!BACKEND_MODE) throw new Error("This feature is only available in backend mode.");
+    const res = await fetch(`${API_BASE_URL}/admin/dramas/rollback`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filename }),
+        credentials: 'include',
+    });
+    await handleApiError(res, 'Failed to rollback.');
+    return res.json();
+};

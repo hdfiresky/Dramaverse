@@ -9,8 +9,7 @@ import {
     ChevronRightIcon, EyeIcon, BookmarkIcon, CheckCircleIcon, PauseIcon, XCircleIcon, 
     UserIcon, FilmIcon, ChatBubbleOvalLeftEllipsisIcon, SearchIcon, InformationCircleIcon,
     UserPlusIcon, UserMinusIcon, BanIcon, CheckBadgeIcon, KeyIcon, TrashIcon, CloseIcon,
-    ChartBarIcon,
-    Cog6ToothIcon
+    ChartBarIcon, Cog6ToothIcon, ArrowUpTrayIcon, ArrowDownTrayIcon, ArrowUturnLeftIcon
 } from './Icons';
 import {
     fetchAllUsers,
@@ -20,8 +19,13 @@ import {
     resetUserPassword,
     toggleUserAdminStatus,
     fetchAllUserDataForAdmin,
-    fetchRegistrationStats
+    fetchRegistrationStats,
+    fetchBackups,
+    rollbackToBackup
 } from '../hooks/lib/adminApi';
+import { DataImportModal } from './DataImportModal';
+import { API_BASE_URL } from '../config';
+
 
 // --- SUB-COMPONENTS ---
 
@@ -306,6 +310,80 @@ const UserManagementModal: React.FC<UserManagementModalProps> = ({ user, current
     );
 };
 
+const DataManagement: React.FC<{ onImportComplete: () => void }> = ({ onImportComplete }) => {
+    const [isExpanded, setIsExpanded] = useState(false);
+    const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+    const [backups, setBackups] = useState<{ filename: string; createdAt: string }[]>([]);
+
+    const loadBackups = useCallback(async () => {
+        try {
+            const backupData = await fetchBackups();
+            setBackups(backupData);
+        } catch (e) {
+            alert(e instanceof Error ? e.message : "Could not load backups.");
+        }
+    }, []);
+
+    useEffect(() => {
+        if (isExpanded) {
+            loadBackups();
+        }
+    }, [isExpanded, loadBackups]);
+
+    const handleRollback = async (filename: string) => {
+        if (window.confirm(`Are you sure you want to roll back to ${filename}? This will replace all current drama data.`)) {
+            try {
+                const result = await rollbackToBackup(filename);
+                alert(result.message);
+                onImportComplete(); // Refresh all data
+                loadBackups();
+            } catch (e) {
+                alert(e instanceof Error ? e.message : "Rollback failed.");
+            }
+        }
+    };
+    
+    return (
+        <div className="mt-8">
+            <button onClick={() => setIsExpanded(!isExpanded)} className="flex items-center gap-2 text-xl font-bold text-brand-text-primary mb-4 w-full text-left" aria-expanded={isExpanded}>
+                <Cog6ToothIcon className="w-6 h-6" />
+                Drama Data Management
+                <ChevronRightIcon className={`w-5 h-5 transition-transform ${isExpanded ? 'rotate-90' : ''}`} />
+            </button>
+            {isExpanded && (
+                <div className="bg-brand-secondary shadow-lg rounded-lg p-6 animate-fade-in grid grid-cols-1 md:grid-cols-2 gap-8">
+                    <div>
+                        <h4 className="font-semibold mb-3">Import Dramas</h4>
+                        <p className="text-sm text-brand-text-secondary mb-4">Upload a new `dramas.json` file to add or update the drama library.</p>
+                        <button onClick={() => setIsImportModalOpen(true)} className="flex items-center gap-2 px-4 py-2 text-sm font-semibold bg-brand-accent hover:bg-brand-accent-hover rounded-md transition-colors">
+                            <ArrowUpTrayIcon className="w-5 h-5"/>
+                            Import Data
+                        </button>
+                    </div>
+                     <div>
+                        <h4 className="font-semibold mb-3">Manage Backups</h4>
+                        <div className="max-h-60 overflow-y-auto space-y-2 custom-scrollbar pr-2">
+                           {backups.length > 0 ? backups.map(backup => (
+                               <div key={backup.filename} className="bg-brand-primary p-2 rounded-md flex justify-between items-center text-sm">
+                                   <div>
+                                       <p className="font-mono">{backup.filename}</p>
+                                       <p className="text-xs text-slate-400">{new Date(backup.createdAt).toLocaleString()}</p>
+                                   </div>
+                                   <div className="flex items-center gap-1">
+                                       <a href={`${API_BASE_URL}/admin/dramas/download/${backup.filename}`} title="Download" className="p-2 hover:bg-slate-700 rounded-full"><ArrowDownTrayIcon className="w-4 h-4" /></a>
+                                       <button onClick={() => handleRollback(backup.filename)} title="Rollback to this version" className="p-2 hover:bg-slate-700 rounded-full"><ArrowUturnLeftIcon className="w-4 h-4 text-yellow-400"/></button>
+                                   </div>
+                               </div>
+                           )) : <p className="text-sm text-brand-text-secondary">No backups found.</p>}
+                        </div>
+                    </div>
+                </div>
+            )}
+            <DataImportModal isOpen={isImportModalOpen} onClose={() => setIsImportModalOpen(false)} onImportComplete={() => { onImportComplete(); loadBackups(); }} />
+        </div>
+    );
+}
+
 interface AdminPanelProps {
     allDramas: Drama[];
     currentUser: User | null;
@@ -325,39 +403,32 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ allDramas, currentUser }
     const [registrationStats, setRegistrationStats] = useState<{date: string, count: number}[]>([]);
     const [isStatsLoading, setIsStatsLoading] = useState(true);
 
-    const fetchUsersCb = useCallback(async () => {
+    const fetchAdminData = useCallback(async () => {
         setIsLoading(true);
+        setIsStatsLoading(true);
         try {
-            const data = await fetchAllUsers();
-            setUsers(data);
+            const usersData = await fetchAllUsers();
+            setUsers(usersData);
+            
+            const [userData, regStats] = await Promise.all([
+                fetchAllUserDataForAdmin(),
+                fetchRegistrationStats()
+            ]);
+            setAllUserData(userData);
+            setRegistrationStats(regStats);
+            
             setError(null);
         } catch (err) {
             setError(err instanceof Error ? err.message : 'An unknown error occurred.');
         } finally {
             setIsLoading(false);
+            setIsStatsLoading(false);
         }
     }, []);
 
     useEffect(() => {
-        fetchUsersCb();
-        
-        const fetchStatsData = async () => {
-            setIsStatsLoading(true);
-            try {
-                const [userData, regStats] = await Promise.all([
-                    fetchAllUserDataForAdmin(),
-                    fetchRegistrationStats()
-                ]);
-                setAllUserData(userData);
-                setRegistrationStats(regStats);
-            } catch (err) {
-                console.error("Could not load data for advanced stats:", err);
-            } finally {
-                setIsStatsLoading(false);
-            }
-        };
-        fetchStatsData();
-    }, [fetchUsersCb]);
+        fetchAdminData();
+    }, [fetchAdminData]);
 
     const handleAction = async (action: () => Promise<any>, successCallback?: () => void) => {
         setManagingUser(null);
@@ -465,6 +536,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ allDramas, currentUser }
                  )}
             </div>
 
+             <DataManagement onImportComplete={fetchAdminData} />
+
             <AdvancedStats dramas={allDramas} allUserData={allUserData} registrationStats={registrationStats} isLoading={isStatsLoading} />
 
             {managingUser && (
@@ -475,12 +548,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ allDramas, currentUser }
                     onToggleAdmin={() => {
                         const action = managingUser.isAdmin ? 'demote' : 'promote';
                         if (window.confirm(`Are you sure you want to ${action} ${managingUser.username}?`)) {
-                            handleAction(() => toggleUserAdminStatus(managingUser.id, !managingUser.isAdmin), fetchUsersCb);
+                            handleAction(() => toggleUserAdminStatus(managingUser.id, !managingUser.isAdmin), fetchAdminData);
                         }
                     }}
                     onToggleBan={() => {
                          if (window.confirm(`Are you sure you want to ${managingUser.is_banned ? 'unban' : 'ban'} this user?`)) {
-                            handleAction(() => toggleUserBan(managingUser.id, !managingUser.is_banned), fetchUsersCb);
+                            handleAction(() => toggleUserBan(managingUser.id, !managingUser.is_banned), fetchAdminData);
                         }
                     }}
                     onResetPassword={() => {
@@ -493,7 +566,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ allDramas, currentUser }
                     }}
                     onDeleteUser={() => {
                          if (window.confirm(`Are you sure you want to PERMANENTLY DELETE user '${managingUser.username}'? This cannot be undone.`)) {
-                           handleAction(() => deleteUser(managingUser.id), fetchUsersCb);
+                           handleAction(() => deleteUser(managingUser.id), fetchAdminData);
                         }
                     }}
                 />
