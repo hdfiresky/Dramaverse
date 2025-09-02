@@ -216,6 +216,7 @@ async function fetchUserData(userId) {
 
 const app = express();
 const server = http.createServer(app);
+app.set('trust proxy', 1); // Trust the first hop from the reverse proxy (Nginx)
 app.use(helmet());
 const apiLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 200 });
 const authLimiter = rateLimit({ windowMs: 30 * 60 * 1000, max: 10 });
@@ -302,7 +303,7 @@ app.get('/api/dramas', apiLimiter, async (req, res) => {
         }
         const pageNum = parseInt(page), limitNum = parseInt(limit), offset = (pageNum - 1) * limitNum;
         const [rows] = await db.query(`SELECT url, title, data FROM dramas WHERE ${whereString} ORDER BY ${orderBy} LIMIT ? OFFSET ?`, [...params, limitNum, offset]);
-        res.json({ totalItems: total, dramas: rows.map(r => ({ ...JSON.parse(r.data), url: r.url, title: r.title })), currentPage: pageNum, totalPages: Math.ceil(total / limitNum) });
+        res.json({ totalItems: total, dramas: rows.map(r => ({ ...r.data, url: r.url, title: r.title })), currentPage: pageNum, totalPages: Math.ceil(total / limitNum) });
     } catch (err) {
         console.error("Error in /api/dramas:", err);
         res.status(500).json({ message: "An error occurred while fetching dramas." });
@@ -312,23 +313,23 @@ app.get('/api/dramas', apiLimiter, async (req, res) => {
 app.get('/api/dramas/by-actor/:actorName', apiLimiter, async (req, res) => {
     const sql = `SELECT url, title, data FROM dramas WHERE JSON_SEARCH(data, 'one', ?, NULL, '$.cast[*].actor_name') IS NOT NULL`;
     const [rows] = await db.query(sql, [req.params.actorName]);
-    res.json(rows.map(r => ({...JSON.parse(r.data), url: r.url, title: r.title})));
+    res.json(rows.map(r => ({...r.data, url: r.url, title: r.title})));
 });
 
 app.post('/api/dramas/by-urls', apiLimiter, async (req, res) => {
     const { urls } = req.body;
     if (!Array.isArray(urls) || urls.length === 0) return res.json([]);
     const [rows] = await db.query(`SELECT url, title, data FROM dramas WHERE url IN (?)`, [urls]);
-    res.json(rows.map(r => ({...JSON.parse(r.data), url: r.url, title: r.title})));
+    res.json(rows.map(r => ({...r.data, url: r.url, title: r.title})));
 });
 
 app.get('/api/dramas/recommendations/curated/:url', apiLimiter, async (req, res) => {
     const [[drama]] = await db.query(`SELECT data FROM dramas WHERE url = ?`, [req.params.url]);
     if (!drama) return res.status(404).json([]);
-    const recUrls = JSON.parse(drama.data).recommendations.map(r => r.url);
+    const recUrls = drama.data.recommendations.map(r => r.url);
     if (recUrls.length === 0) return res.json([]);
     const [rows] = await db.query(`SELECT url, title, data FROM dramas WHERE url IN (?)`, [recUrls]);
-    res.json(rows.map(r => ({...JSON.parse(r.data), url: r.url, title: r.title})));
+    res.json(rows.map(r => ({...r.data, url: r.url, title: r.title})));
 });
 
 app.get('/api/dramas/recommendations/similar/:url', apiLimiter, async (req, res) => {
@@ -342,7 +343,7 @@ app.get('/api/dramas/recommendations/similar/:url', apiLimiter, async (req, res)
 
     const [[baseDramaRow]] = await db.query('SELECT data FROM dramas WHERE url = ?', [baseDramaUrl]);
     if (!baseDramaRow) return res.status(404).json([]);
-    const baseDrama = JSON.parse(baseDramaRow.data);
+    const baseDrama = baseDramaRow.data;
 
     if (selectedCriteria.includes('genres') && baseDrama.genres.length > 0) {
         scoreClauses.push(`(SELECT COUNT(*) FROM JSON_TABLE(?, '$[*]' COLUMNS(val VARCHAR(255) PATH '$')) AS j1 JOIN JSON_TABLE(d2.data->'$.genres', '$[*]' COLUMNS(val VARCHAR(255) PATH '$')) AS j2 ON j1.val = j2.val) * ?`);
@@ -376,7 +377,7 @@ app.get('/api/dramas/recommendations/similar/:url', apiLimiter, async (req, res)
     params.push(baseDramaUrl);
 
     const [results] = await db.query(sql, params);
-    res.json(results.map(r => ({ drama: {...JSON.parse(r.data), url: r.url, title: r.title}, score: Math.round(r.score) })));
+    res.json(results.map(r => ({ drama: {...r.data, url: r.url, title: r.title}, score: Math.round(r.score) })));
 });
 
 
@@ -493,7 +494,7 @@ app.post('/api/admin/dramas/upload-preview', upload.single('dramaFile'), async (
     try {
         const uploaded = JSON.parse(await fs.readFile(req.file.path, 'utf-8'));
         const [existingRows] = await db.query('SELECT url, data FROM dramas');
-        const existing = new Map(existingRows.map(r => [r.url, JSON.parse(r.data)]));
+        const existing = new Map(existingRows.map(r => [r.url, r.data]));
         const results = { new: [], updated: [], unchanged: [], errors: [] };
         for (const [i, d] of uploaded.entries()) {
             if (!d.url || !d.title) { results.errors.push({ index: i, drama: d, error: 'Missing url or title.' }); continue; }
@@ -523,7 +524,7 @@ app.get('/api/admin/dramas/backups', async (req, res) => {
     try {
         const files = await fs.readdir(BACKUPS_DIR);
         const backups = await Promise.all(files.filter(f => f.endsWith('.json')).map(async f => ({ filename: f, createdAt: (await fs.stat(path.join(BACKUPS_DIR, f))).birthtime })));
-        res.json(backups.sort((a,b) => b.createdAt - a.createdAt));
+        res.json(backups.sort((a,b) => new Date(b.createdAt) - new Date(a.createdAt)));
     } catch { res.json([]); }
 });
 app.get('/api/admin/dramas/download/:filename', (req, res) => {
@@ -552,6 +553,7 @@ async function startServer() {
         await seedAdminUser();
         server.listen(PORT, () => console.log(`Server with MySQL running on http://localhost:${PORT}`));
     } catch (err) {
+        console.error("Failed to start server:", err);
         if (db) await db.end();
         process.exit(1);
     }
