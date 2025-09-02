@@ -1,4 +1,5 @@
 
+
 /**
  * @fileoverview Defines the modal component for displaying detailed information about a drama.
  * This includes metadata, user actions (like setting status), and both curated and
@@ -121,7 +122,6 @@ const RecommendationCard: React.FC<{
     </div>
 );
 
-// FIX: Define CRITERIA_OPTIONS for the similarity engine.
 const CRITERIA_OPTIONS = [
     { id: 'genres', label: 'Genres' },
     { id: 'tags', label: 'Tags' },
@@ -137,6 +137,23 @@ export const DramaDetailModal: React.FC<DramaDetailModalProps> = ({ drama, onClo
     const [recsError, setRecsError] = useState<string | null>(null);
     const [refreshTrigger, setRefreshTrigger] = useState(0);
     const scrollContainerRef = useRef<HTMLDivElement>(null);
+    const [allDramas, setAllDramas] = useState<Drama[]>([]);
+
+    useEffect(() => {
+        if (BACKEND_MODE) return;
+        const fetchAllDramas = async () => {
+            try {
+                const res = await fetch('data/dramas.json');
+                if (!res.ok) throw new Error('Failed to fetch drama list.');
+                const data = await res.json();
+                setAllDramas(data);
+            } catch (e) {
+                console.error("Could not load all dramas for similarity engine:", e);
+                setRecsError("Could not load drama library for recommendations.");
+            }
+        };
+        fetchAllDramas();
+    }, []);
 
     useEffect(() => {
         if (drama) {
@@ -147,43 +164,103 @@ export const DramaDetailModal: React.FC<DramaDetailModalProps> = ({ drama, onClo
     }, [drama]);
 
     useEffect(() => {
-        const getRecommendations = async () => {
-            if (!drama || !BACKEND_MODE) return;
+        if (!drama) return;
 
+        const getRecommendations = async () => {
             setIsLoadingRecs(true);
             setRecsError(null);
 
-            try {
-                let endpoint = '';
+            if (BACKEND_MODE) {
+                try {
+                    let endpoint = '';
+                    if (activeTab === 'curated') {
+                        const params = new URLSearchParams({ url: drama.url });
+                        endpoint = `${API_BASE_URL}/dramas/recommendations/curated?${params.toString()}`;
+                    } else { // similarity
+                        if (selectedCriteria.length === 0) {
+                            setRecommendations([]);
+                            setIsLoadingRecs(false);
+                            return;
+                        }
+                        const params = new URLSearchParams({ 
+                            url: drama.url,
+                            criteria: selectedCriteria.join(',') 
+                        });
+                        endpoint = `${API_BASE_URL}/dramas/recommendations/similar?${params.toString()}`;
+                    }
+                    const res = await fetch(endpoint, { credentials: 'include' });
+                    if (!res.ok) throw new Error("Failed to fetch recommendations.");
+                    setRecommendations(await res.json());
+                } catch (e) {
+                    setRecsError(e instanceof Error ? e.message : "Unknown error.");
+                } finally {
+                    setIsLoadingRecs(false);
+                }
+            } else {
+                // Frontend-only logic
                 if (activeTab === 'curated') {
-                    const params = new URLSearchParams({ url: drama.url });
-                    endpoint = `${API_BASE_URL}/dramas/recommendations/curated?${params.toString()}`;
-                } else { // similarity
-                    if (selectedCriteria.length === 0) {
+                    if (allDramas.length === 0 && drama.recommendations.length > 0) {
+                        return; // Wait for allDramas to load
+                    }
+                    const curatedUrls = new Set(drama.recommendations.map(r => r.url));
+                    const curatedDramas = allDramas.filter(d => curatedUrls.has(d.url));
+                    setRecommendations(curatedDramas);
+                    setIsLoadingRecs(false);
+                } else { // Similarity
+                    if (selectedCriteria.length === 0 || allDramas.length === 0) {
                         setRecommendations([]);
                         setIsLoadingRecs(false);
                         return;
                     }
-                    const params = new URLSearchParams({ 
-                        url: drama.url,
-                        criteria: selectedCriteria.join(',') 
-                    });
-                    endpoint = `${API_BASE_URL}/dramas/recommendations/similar?${params.toString()}`;
+                    
+                    setTimeout(() => {
+                        try {
+                            const weights = { genres: 25, tags: 30, cast: 15, rating: 10 };
+                            const baseGenres = new Set(drama.genres);
+                            const baseTags = new Set(drama.tags);
+                            const baseCast = new Set(drama.cast.map(c => c.actor_name));
+                            const baseRating = drama.rating;
+                            const scoredDramas = allDramas
+                                .filter(otherDrama => otherDrama.url !== drama.url)
+                                .map(otherDrama => {
+                                    let score = 0;
+                                    if (selectedCriteria.includes('genres') && baseGenres.size > 0) {
+                                        const common = otherDrama.genres.filter(g => baseGenres.has(g));
+                                        score += (common.length / baseGenres.size) * weights.genres;
+                                    }
+                                    if (selectedCriteria.includes('tags') && baseTags.size > 0) {
+                                        const common = otherDrama.tags.filter(t => baseTags.has(t));
+                                        score += (common.length / baseTags.size) * weights.tags;
+                                    }
+                                    if (selectedCriteria.includes('cast') && baseCast.size > 0) {
+                                        const common = otherDrama.cast.filter(c => baseCast.has(c.actor_name));
+                                        score += (common.length / baseCast.size) * weights.cast;
+                                    }
+                                    if (selectedCriteria.includes('rating')) {
+                                        const diff = Math.abs(baseRating - otherDrama.rating);
+                                        const ratingScore = (1 - (diff / 10)) * weights.rating;
+                                        score += Math.max(0, ratingScore);
+                                    }
+                                    return { drama: otherDrama, score: Math.round(score) };
+                                });
+                            
+                            const topDramas = scoredDramas
+                                .filter(d => d.score > 10)
+                                .sort((a, b) => b.score - a.score)
+                                .slice(0, 10);
+                            setRecommendations(topDramas);
+                        } catch (e) {
+                             setRecsError("Failed to calculate similarity.");
+                        } finally {
+                            setIsLoadingRecs(false);
+                        }
+                    }, 50);
                 }
-                
-                const res = await fetch(endpoint, { credentials: 'include' });
-                if (!res.ok) throw new Error("Failed to fetch recommendations.");
-                const data = await res.json();
-                setRecommendations(data);
-            } catch (e) {
-                setRecsError(e instanceof Error ? e.message : "Unknown error.");
-            } finally {
-                setIsLoadingRecs(false);
             }
         };
 
         getRecommendations();
-    }, [drama, activeTab, selectedCriteria, refreshTrigger]);
+    }, [drama, activeTab, selectedCriteria, refreshTrigger, allDramas]);
 
     const toggleCriterion = (criterionId: string) => {
         setSelectedCriteria(prev => 

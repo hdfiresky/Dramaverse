@@ -66,29 +66,39 @@ export default function App() {
     // --- FILTERS & SORT (State derived from URL) ---
     const query = location.query;
 
+    const genresQuery = query.get('genres');
+    const excludeGenresQuery = query.get('excludeGenres');
+    const tagsQuery = query.get('tags');
+    const excludeTagsQuery = query.get('excludeTags');
+    const countriesQuery = query.get('countries');
+    const castQuery = query.get('cast');
+    const minRatingQuery = query.get('minRating');
+    const sortQuery = query.get('sort');
+    const sortModeQuery = query.get('sortMode');
+    const urlSearchTerm = query.get('q') || '';
+    const currentPage = parseInt(query.get('page') || '1', 10);
+
     const filters = useMemo<Filters>(() => ({
-        genres: query.get('genres')?.split(',').filter(Boolean) || [],
-        excludeGenres: query.get('excludeGenres')?.split(',').filter(Boolean) || [],
-        tags: query.get('tags')?.split(',').filter(Boolean) || [],
-        excludeTags: query.get('excludeTags')?.split(',').filter(Boolean) || [],
-        countries: query.get('countries')?.split(',').filter(Boolean) || [],
-        cast: query.get('cast')?.split(',').filter(Boolean) || [],
-        minRating: parseFloat(query.get('minRating') || '0'),
-    }), [query]);
+        genres: genresQuery?.split(',').filter(Boolean) || [],
+        excludeGenres: excludeGenresQuery?.split(',').filter(Boolean) || [],
+        tags: tagsQuery?.split(',').filter(Boolean) || [],
+        excludeTags: excludeTagsQuery?.split(',').filter(Boolean) || [],
+        countries: countriesQuery?.split(',').filter(Boolean) || [],
+        cast: castQuery?.split(',').filter(Boolean) || [],
+        minRating: parseFloat(minRatingQuery || '0'),
+    }), [genresQuery, excludeGenresQuery, tagsQuery, excludeTagsQuery, countriesQuery, castQuery, minRatingQuery]);
 
     const sortPriorities = useMemo<SortPriority[]>(() => 
-        query.get('sort') ? JSON.parse(query.get('sort')!) : [{ key: 'popularity_rank', order: 'desc' }, { key: 'rating', order: 'desc' }]
-    , [query]);
+        sortQuery ? JSON.parse(sortQuery) : [{ key: 'popularity_rank', order: 'desc' }, { key: 'rating', order: 'desc' }]
+    , [sortQuery]);
 
     const sortMode = useMemo<'weighted' | 'random'>(() => 
-        (query.get('sortMode') as 'weighted' | 'random') || 'weighted'
-    , [query]);
+        (sortModeQuery as 'weighted' | 'random') || 'weighted'
+    , [sortModeQuery]);
     
-    const urlSearchTerm = query.get('q') || '';
     const [searchTerm, setSearchTerm] = useState(urlSearchTerm);
     const debouncedSearchTerm = useDebounce(searchTerm, 300);
 
-    const currentPage = parseInt(query.get('page') || '1', 10);
     const [isFilterSidebarOpen, setFilterSidebarOpen] = useState(false);
     const [randomSeed, setRandomSeed] = useState(() => Date.now());
 
