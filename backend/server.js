@@ -221,7 +221,7 @@ app.use(helmet());
 const apiLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 200 });
 const authLimiter = rateLimit({ windowMs: 30 * 60 * 1000, max: 10 });
 app.use(cors(corsOptions));
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
 app.use(cookieParser());
 const io = new Server(server, { cors: corsOptions, path: SOCKET_IO_PATH });
 const upload = multer({ dest: UPLOAD_DIR });
@@ -639,20 +639,65 @@ app.post('/api/admin/users/:id/admin', async (req, res) => { if (req.user.id ===
 app.post('/api/admin/users/:id/ban', async (req, res) => { const [[u]] = await db.query('SELECT is_admin FROM users WHERE id = ?', [req.params.id]); if (u?.is_admin) return res.status(403).json({m:'Cannot ban admin.'}); await db.execute('UPDATE users SET is_banned = ? WHERE id = ?', [req.body.ban ? 1 : 0, req.params.id]); res.sendStatus(200); });
 app.delete('/api/admin/users/:id', async (req, res) => { const [[u]] = await db.query('SELECT is_admin FROM users WHERE id = ?', [req.params.id]); if (u?.is_admin) return res.status(403).json({m:'Cannot delete admin.'}); await db.execute('DELETE FROM users WHERE id = ?', [req.params.id]); res.sendStatus(200); });
 app.post('/api/admin/users/:id/reset-password', async (req, res) => { const p = crypto.randomBytes(8).toString('hex'); await db.execute('UPDATE users SET password = ? WHERE id = ?', [bcrypt.hashSync(p, 8), req.params.id]); res.json({ newPassword: p }); });
+
 app.post('/api/admin/dramas/upload-preview', upload.single('dramaFile'), async (req, res) => {
     try {
         const uploaded = JSON.parse(await fs.readFile(req.file.path, 'utf-8'));
-        const [existingRows] = await db.query('SELECT url, data FROM dramas');
-        const existing = new Map(existingRows.map(r => [r.url, r.data]));
+        if (!Array.isArray(uploaded)) {
+            throw new Error("Uploaded file is not a valid JSON array.");
+        }
         const results = { new: [], updated: [], unchanged: [], errors: [] };
-        for (const [i, d] of uploaded.entries()) {
-            if (!d.url || !d.title) { results.errors.push({ index: i, drama: d, error: 'Missing url or title.' }); continue; }
-            if (existing.has(d.url)) { const {url,title,...rest}=d; if(JSON.stringify(rest)===JSON.stringify(existing.get(d.url))) results.unchanged.push(d); else results.updated.push({ old:{url,title,...existing.get(d.url)},new:d}); }
-            else results.new.push(d);
+        const chunkSize = 50; 
+
+        const stringifyForCompare = (obj) => {
+            if (obj === null || typeof obj !== 'object') return JSON.stringify(obj);
+            if (Array.isArray(obj)) return `[${obj.map(stringifyForCompare).join(',')}]`;
+            const sortedKeys = Object.keys(obj).sort();
+            const pairs = sortedKeys.map(key => `${JSON.stringify(key)}:${stringifyForCompare(obj[key])}`);
+            return `{${pairs.join(',')}}`;
+        };
+
+        for (let i = 0; i < uploaded.length; i += chunkSize) {
+            const chunk = uploaded.slice(i, i + chunkSize);
+            const chunkUrls = chunk.map(d => d ? d.url : null).filter(Boolean);
+            
+            let existing = new Map();
+            if (chunkUrls.length > 0) {
+                 const [existingRows] = await db.query('SELECT url, data FROM dramas WHERE url IN (?)', [chunkUrls]);
+                 existing = new Map(existingRows.map(r => [r.url, r.data]));
+            }
+
+            chunk.forEach((d, index) => {
+                const globalIndex = i + index;
+                if (!d || typeof d !== 'object' || !d.url || !d.title) {
+                    results.errors.push({ index: globalIndex, drama: d || {}, error: 'Invalid format or missing url/title.' });
+                    return;
+                }
+
+                if (existing.has(d.url)) {
+                    const { url, title, ...rest } = d;
+                    const existingData = existing.get(d.url);
+                    if (stringifyForCompare(rest) === stringifyForCompare(existingData)) {
+                        results.unchanged.push(d);
+                    } else {
+                        results.updated.push({ old: { url, title, ...existingData }, new: d });
+                    }
+                } else {
+                    results.new.push(d);
+                }
+            });
         }
         res.json(results);
-    } catch (e) { res.status(400).json({ message: e.message }); } finally { await fs.unlink(req.file.path); }
+    } catch (e) {
+        console.error("Error during drama file preview:", e);
+        res.status(400).json({ message: e instanceof SyntaxError ? "Invalid JSON file." : e.message });
+    } finally {
+        if (req.file?.path) {
+            try { await fs.unlink(req.file.path); } catch (e) { console.error("Error deleting temp file:", e); }
+        }
+    }
 });
+
 app.post('/api/admin/dramas/import', async (req, res) => {
     const { dramasToImport } = req.body;
     const connection = await db.getConnection();
