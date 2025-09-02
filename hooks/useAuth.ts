@@ -413,9 +413,12 @@ export const useAuth = (onLoginSuccess?: () => void, openConflictModal?: (data: 
         const now = Date.now();
         const statusWithTimestamp: UserDramaStatus = { ...statusInfo, updatedAt: now };
 
+        // The body for the API call must include the dramaUrl, which the backend endpoint expects.
+        const payload = { dramaUrl, ...statusInfo };
+
         return authenticatedUpdate(
             '/user/statuses',
-            statusWithTimestamp,
+            payload,
             (currentData) => {
                 const newStatuses = { ...currentData.statuses };
                 const newListUpdateTimestamps = { ...currentData.listUpdateTimestamps };

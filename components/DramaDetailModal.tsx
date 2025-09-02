@@ -145,7 +145,6 @@ export const DramaDetailModal: React.FC<DramaDetailModalProps> = ({ drama, onClo
 
     const tagPills = useMemo(() => drama ? drama.tags.map(t => (
         <button key={t} onClick={() => onSetQuickFilter('tag', t)} 
-            // FIX: Changed 'g' to 't' to correctly check if the tag is included in the filters.
             className={`text-xs font-semibold px-2 py-1 rounded transition-colors ${filters.tags.includes(t) ? "bg-sky-500/50 text-sky-200 cursor-default" : "bg-brand-primary hover:bg-brand-accent"}`}>
             {t}
         </button>
