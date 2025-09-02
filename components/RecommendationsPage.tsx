@@ -7,6 +7,7 @@ import { Drama, UserData, UserDramaStatus } from '../types';
 import { DramaCard } from './DramaCard';
 import { API_BASE_URL, BACKEND_MODE } from '../config';
 import { RecommendationEngineCardSkeleton } from './Skeletons';
+import { ArrowPathIcon } from './Icons';
 
 interface RecommendationsPageProps {
     userData: UserData;
@@ -64,6 +65,7 @@ export const RecommendationsPage: React.FC<RecommendationsPageProps> = (props) =
     const [recommendations, setRecommendations] = useState<RecommendationResults | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const [refreshTrigger, setRefreshTrigger] = useState(0);
 
     useEffect(() => {
         const fetchRecommendations = async () => {
@@ -73,6 +75,7 @@ export const RecommendationsPage: React.FC<RecommendationsPageProps> = (props) =
                 return;
             }
 
+            setIsLoading(true);
             try {
                 const res = await fetch(`${API_BASE_URL}/user/recommendations`, { credentials: 'include' });
                 if (!res.ok) {
@@ -89,7 +92,7 @@ export const RecommendationsPage: React.FC<RecommendationsPageProps> = (props) =
         };
 
         fetchRecommendations();
-    }, []);
+    }, [refreshTrigger]);
 
     const renderContent = () => {
         if (isLoading) {
@@ -145,13 +148,24 @@ export const RecommendationsPage: React.FC<RecommendationsPageProps> = (props) =
 
     return (
         <div className="w-full animate-fade-in">
-            <div className="mb-6">
-                <h2 className="text-3xl font-bold text-brand-text-primary">
-                    For You
-                </h2>
-                <p className="text-md text-brand-text-secondary mt-1">
-                    Personalized recommendations based on your viewing habits.
-                </p>
+            <div className="mb-6 flex justify-between items-center">
+                <div>
+                    <h2 className="text-3xl font-bold text-brand-text-primary">
+                        For You
+                    </h2>
+                    <p className="text-md text-brand-text-secondary mt-1">
+                        Personalized recommendations based on your viewing habits.
+                    </p>
+                </div>
+                 <button
+                    onClick={() => setRefreshTrigger(t => t + 1)}
+                    disabled={isLoading}
+                    className="p-2 rounded-full text-brand-text-secondary hover:text-brand-accent hover:bg-brand-primary transition-colors disabled:opacity-50 disabled:cursor-wait"
+                    title="Get new recommendations"
+                    aria-label="Get new recommendations"
+                >
+                    <ArrowPathIcon className={`w-6 h-6 ${isLoading ? 'animate-spin' : ''}`} />
+                </button>
             </div>
             {renderContent()}
         </div>
