@@ -1,3 +1,4 @@
+
 /**
  * @fileoverview Defines the modal component for displaying detailed information about a drama.
  * This includes metadata, user actions (like setting status), and both curated and
@@ -5,9 +6,10 @@
  */
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import ReactDOM from 'react-dom';
-import { Drama, Filters, Recommendation, CastMember, User } from '../types';
+import { Drama, Filters, Recommendation, CastMember, User, UserData, UserDramaStatus, DramaStatus } from '../types';
 import {
-    CloseIcon, StarIcon, ChevronLeftIcon, PencilSquareIcon
+    CloseIcon, StarIcon, ChevronLeftIcon, PencilSquareIcon,
+    EyeIcon, CheckCircleIcon, PauseIcon, XCircleIcon, BookmarkIcon, ArrowPathIcon
 } from './Icons';
 import { BACKEND_MODE, API_BASE_URL } from '../config';
 import { RecommendationCardSkeleton } from './Skeletons';
@@ -31,9 +33,65 @@ interface DramaDetailModalProps {
     showBackButton: boolean;
     /** The current logged-in user, to conditionally show user-specific actions. */
     currentUser: User | null;
+    /** The current user's data, for displaying and managing status. */
+    userData: UserData;
+    /** Callback to set the user's status for a drama. */
+    onSetStatus: (url: string, statusInfo: Omit<UserDramaStatus, 'updatedAt'>) => void;
     /** Callback to open the episode reviews modal for this drama. */
     onOpenReviews: (drama: Drama) => void;
 }
+
+const statusConfig: { [key in DramaStatus]: { icon: React.FC<any>, label: string, color: string } } = {
+    [DramaStatus.Watching]: { icon: EyeIcon, label: 'Watching', color: 'text-sky-400' },
+    [DramaStatus.Completed]: { icon: CheckCircleIcon, label: 'Completed', color: 'text-green-400' },
+    [DramaStatus.OnHold]: { icon: PauseIcon, label: 'On-Hold', color: 'text-yellow-400' },
+    [DramaStatus.Dropped]: { icon: XCircleIcon, label: 'Dropped', color: 'text-red-400' },
+    [DramaStatus.PlanToWatch]: { icon: BookmarkIcon, label: 'Plan to Watch', color: 'text-gray-400' },
+};
+const statusOrder: DramaStatus[] = [DramaStatus.Watching, DramaStatus.Completed, DramaStatus.OnHold, DramaStatus.Dropped, DramaStatus.PlanToWatch];
+
+const StatusSelector: React.FC<{ drama: Drama, userData: UserData, onSetStatus: DramaDetailModalProps['onSetStatus'] }> = ({ drama, userData, onSetStatus }) => {
+    const currentStatusInfo = userData?.statuses?.[drama.url];
+    const currentStatus = currentStatusInfo?.status;
+
+    const handleStatusClick = (status: DramaStatus) => {
+        // If clicking the currently active status, remove it from the list.
+        if (currentStatus === status) {
+            onSetStatus(drama.url, { status: null as any });
+        } else {
+            // Otherwise, set the new status. Auto-complete if 'Completed' is chosen.
+            const newEpisode = status === DramaStatus.Completed ? drama.episodes : (currentStatusInfo?.currentEpisode || 0);
+            onSetStatus(drama.url, { status, currentEpisode: newEpisode });
+        }
+    };
+
+    return (
+        <div className="mt-6">
+            <h4 className="font-semibold text-brand-text-primary mb-3">My Status</h4>
+            <div className="flex flex-wrap gap-2">
+                {statusOrder.map(status => {
+                    const config = statusConfig[status];
+                    const isActive = currentStatus === status;
+                    return (
+                        <button
+                            key={status}
+                            onClick={() => handleStatusClick(status)}
+                            className={`flex-grow sm:flex-grow-0 flex items-center justify-center gap-2 px-3 py-2 text-sm font-semibold rounded-md transition-all duration-200 border-2 ${
+                                isActive ? `${config.color.replace('text-', 'border-')} bg-brand-primary` : 'border-transparent bg-brand-primary hover:border-slate-500'
+                            }`}
+                            title={`Set status to ${config.label}`}
+                            aria-pressed={isActive}
+                        >
+                            <config.icon className={`w-5 h-5 ${isActive ? config.color : 'text-brand-text-secondary'}`} />
+                            <span className={isActive ? 'text-brand-text-primary' : 'text-brand-text-secondary'}>{config.label}</span>
+                        </button>
+                    );
+                })}
+            </div>
+        </div>
+    );
+};
+
 
 /**
  * A helper component to render a drama card within the recommendation section.
@@ -71,12 +129,13 @@ const CRITERIA_OPTIONS = [
     { id: 'rating', label: 'Rating' },
 ];
 
-export const DramaDetailModal: React.FC<DramaDetailModalProps> = ({ drama, onCloseAll, onPopModal, onSelectDrama, onSetQuickFilter, onSelectActor, filters, showBackButton, currentUser, onOpenReviews }) => {
+export const DramaDetailModal: React.FC<DramaDetailModalProps> = ({ drama, onCloseAll, onPopModal, onSelectDrama, onSetQuickFilter, onSelectActor, filters, showBackButton, currentUser, userData, onSetStatus, onOpenReviews }) => {
     const [activeTab, setActiveTab] = useState<'curated' | 'similarity'>('curated');
     const [selectedCriteria, setSelectedCriteria] = useState<string[]>(['genres', 'tags', 'rating']);
     const [recommendations, setRecommendations] = useState<any[]>([]);
     const [isLoadingRecs, setIsLoadingRecs] = useState(false);
     const [recsError, setRecsError] = useState<string | null>(null);
+    const [refreshTrigger, setRefreshTrigger] = useState(0);
     const scrollContainerRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
@@ -124,7 +183,7 @@ export const DramaDetailModal: React.FC<DramaDetailModalProps> = ({ drama, onClo
         };
 
         getRecommendations();
-    }, [drama, activeTab, selectedCriteria]);
+    }, [drama, activeTab, selectedCriteria, refreshTrigger]);
 
     const toggleCriterion = (criterionId: string) => {
         setSelectedCriteria(prev => 
@@ -208,16 +267,19 @@ export const DramaDetailModal: React.FC<DramaDetailModalProps> = ({ drama, onClo
                             </div>
                             <p className="text-brand-text-secondary leading-relaxed mb-6">{drama.description}</p>
                             
-                            {currentUser && (
-                                <div className="mt-6">
-                                    <button
-                                        onClick={() => onOpenReviews(drama)}
-                                        className="w-full text-center py-3 px-4 bg-brand-primary hover:bg-brand-accent transition-colors rounded-lg font-semibold flex items-center justify-center gap-2"
-                                    >
-                                        <PencilSquareIcon className="w-5 h-5" />
-                                        <span>Edit Episode Reviews</span>
-                                    </button>
-                                </div>
+                             {currentUser && (
+                                <>
+                                    <StatusSelector drama={drama} userData={userData} onSetStatus={onSetStatus} />
+                                    <div className="mt-6">
+                                        <button
+                                            onClick={() => onOpenReviews(drama)}
+                                            className="w-full text-center py-3 px-4 bg-brand-primary hover:bg-brand-accent transition-colors rounded-lg font-semibold flex items-center justify-center gap-2"
+                                        >
+                                            <PencilSquareIcon className="w-5 h-5" />
+                                            <span>Edit Episode Reviews</span>
+                                        </button>
+                                    </div>
+                                </>
                             )}
                         </div>
                     </section>
@@ -230,7 +292,19 @@ export const DramaDetailModal: React.FC<DramaDetailModalProps> = ({ drama, onClo
                     )}
 
                     <section className="mt-12">
-                        <h2 className="text-2xl font-bold mb-4">Recommendations</h2>
+                         <div className="flex items-center gap-2 mb-4">
+                             <h2 className="text-2xl font-bold">Recommendations</h2>
+                             {activeTab === 'similarity' && (
+                                <button
+                                    onClick={() => setRefreshTrigger(Date.now())}
+                                    disabled={isLoadingRecs}
+                                    className="p-1.5 rounded-full text-brand-text-secondary hover:bg-brand-primary hover:text-brand-accent disabled:text-gray-500 disabled:cursor-wait"
+                                    title="Refresh similarity recommendations"
+                                >
+                                    <ArrowPathIcon className={`w-5 h-5 transition-transform ${isLoadingRecs ? 'animate-spin' : ''}`} />
+                                </button>
+                            )}
+                        </div>
                         <div className="border-b border-gray-700 mb-6">
                             <nav className="-mb-px flex space-x-6" role="tablist" aria-label="Recommendation type">
                                 <button role="tab" aria-selected={activeTab === 'curated'} onClick={() => setActiveTab('curated')} className={`whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm transition-colors ${activeTab === 'curated' ? 'border-brand-accent text-brand-accent' : 'border-transparent text-gray-400 hover:text-gray-200 hover:border-gray-500'}`}>Curated</button>

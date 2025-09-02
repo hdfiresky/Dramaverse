@@ -1,3 +1,4 @@
+
 /**
  * @fileoverview The main application component, acting as the root container.
  * It orchestrates the entire application by composing custom hooks for state management
@@ -119,6 +120,21 @@ export default function App() {
     const { 
         displayDramas, totalDramas, metadata, isLoading, dataError, hasInitiallyLoaded
     } = useDramas(filters, debouncedSearchTerm, sortPriorities, currentPage, sortMode, randomSeed, itemsPerPage);
+
+    // Effect to handle out-of-bounds page numbers.
+    // If the current page from the URL is greater than the max possible page for the current filters,
+    // this will automatically redirect the user to the last valid page.
+    useEffect(() => {
+        // We only run this check after the initial data has loaded and we are not in a loading state.
+        // This prevents redirects before the total number of dramas is known.
+        if (hasInitiallyLoaded && !isLoading && totalDramas > 0) {
+            const maxPage = Math.ceil(totalDramas / itemsPerPage);
+            if (currentPage > maxPage) {
+                // The `replace` flag is set to true to avoid adding the invalid page URL to the browser history.
+                updateQuery({ page: String(maxPage) }, true);
+            }
+        }
+    }, [currentPage, totalDramas, itemsPerPage, hasInitiallyLoaded, isLoading, updateQuery]);
     
     // --- ON-DEMAND DATA FETCHING FOR MODALS ---
     const modalDramaUrls = useMemo(() => 
@@ -247,7 +263,7 @@ export default function App() {
             <ConflictResolutionModal isOpen={!!conflictData} data={conflictData} onClose={() => setConflictData(null)} onResolve={resolveConflict} />
             
             {activeModalData?.type === 'drama' && (
-                <DramaDetailModal drama={modalDramaDetails.get(activeModalData.dramaUrl)} onCloseAll={closeAllModals} onPopModal={popModal} onSelectDrama={handleSelectDrama} onSetQuickFilter={handleSetQuickFilter} onSelectActor={handleSelectActor} filters={filters} showBackButton={modalStack.length > 1} currentUser={currentUser} onOpenReviews={handleOpenReviews} />
+                <DramaDetailModal drama={modalDramaDetails.get(activeModalData.dramaUrl)} onCloseAll={closeAllModals} onPopModal={popModal} onSelectDrama={handleSelectDrama} onSetQuickFilter={handleSetQuickFilter} onSelectActor={handleSelectActor} filters={filters} showBackButton={modalStack.length > 1} currentUser={currentUser} userData={userData} onSetStatus={handleSetStatus} onOpenReviews={handleOpenReviews} />
             )}
             {activeModalData?.type === 'cast' && (
                 <CastDetailModal actorName={activeModalData.actorName} onCloseAll={closeAllModals} onPopModal={popModal} onSelectDrama={handleSelectDrama} userData={userData} isUserLoggedIn={!!currentUser} onToggleFavorite={handleToggleFavorite} onSetStatus={handleSetStatus} onSetReviewAndTrackProgress={handleSetReviewAndTrackProgress} showBackButton={modalStack.length > 1} />
