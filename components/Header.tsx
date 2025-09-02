@@ -1,6 +1,6 @@
 import React from 'react';
 import { User } from '../types';
-import { HomeIcon, ListBulletIcon, UserCircleIcon, SunIcon, MoonIcon, ChatBubbleOvalLeftEllipsisIcon } from './Icons';
+import { HomeIcon, ListBulletIcon, UserCircleIcon, SunIcon, MoonIcon, ChatBubbleOvalLeftEllipsisIcon, LightBulbIcon } from './Icons';
 
 /**
  * @fileoverview Defines the Header component for the application.
@@ -38,6 +38,8 @@ interface HeaderProps {
     onGoToAllReviews: () => void;
     /** Function to handle navigation to the admin panel. */
     onGoToAdminPanel: () => void;
+    /** Function to handle navigation to the recommendations page. */
+    onGoToRecommendations: () => void;
     /** The current user object, or null if no one is logged in. */
     currentUser: User | null;
     /** Function to open the authentication modal. */
@@ -56,7 +58,7 @@ interface HeaderProps {
  * @param {HeaderProps} props - The props for the Header component.
  * @returns {React.ReactElement} The rendered header element.
  */
-export const Header: React.FC<HeaderProps> = ({ onGoHome, onGoToMyList, onGoToAllReviews, onGoToAdminPanel, currentUser, onLoginClick, onLogout, theme, toggleTheme }) => (
+export const Header: React.FC<HeaderProps> = ({ onGoHome, onGoToMyList, onGoToAllReviews, onGoToAdminPanel, onGoToRecommendations, currentUser, onLoginClick, onLogout, theme, toggleTheme }) => (
     <header className="bg-brand-secondary/80 backdrop-blur-sm sticky top-0 z-30 shadow-md dark:shadow-none">
         <div className="h-16 flex items-center justify-between px-4 sm:px-6 lg:px-8">
             {/* Site Title/Logo - navigates home on click */}
@@ -83,6 +85,14 @@ export const Header: React.FC<HeaderProps> = ({ onGoHome, onGoToMyList, onGoToAl
                             aria-label="Go to my list"
                         >
                             <ListBulletIcon className="w-6 h-6" />
+                        </button>
+                        <button 
+                            onClick={onGoToRecommendations} 
+                            className="p-2 rounded-full text-brand-text-secondary hover:text-brand-accent hover:bg-brand-secondary/50 dark:hover:bg-brand-primary transition-colors"
+                            title="Recommendations"
+                            aria-label="Go to recommendations page"
+                        >
+                            <LightBulbIcon className="w-6 h-6" />
                         </button>
                         <button 
                             onClick={onGoToAllReviews} 

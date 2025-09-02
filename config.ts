@@ -19,7 +19,7 @@ export const BASE_PATH = '/dramaverse/';
  * 1. Set this flag to `true`.
  * 2. Ensure the backend server is running (see backend.md).
  */
-export const BACKEND_MODE = true;
+export const BACKEND_MODE = false;
 
 /**
  * Enables verbose, color-coded logging for the Socket.IO connection in the browser console.

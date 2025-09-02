@@ -1,5 +1,6 @@
 
 
+
 # Dramaverse Backend Setup Guide (v2 - MySQL)
 
 This document provides a comprehensive guide to setting up and running the optional backend server for the Dramaverse application using **MySQL and Docker**. This version is designed for scalability, persistence, and real-time, multi-device data synchronization.
@@ -437,6 +438,7 @@ io.on('connection', (socket) => {
     socket.on('disconnect', (reason) => console.log(`Client ${socket.user.username} disconnected: ${reason}`));
 });
 
+// --- API ENDPOINTS ---
 app.get('/api/health', (req, res) => res.status(200).json({ status: 'ok' }));
 app.get('/api/dramas/metadata', apiLimiter, (req, res) => res.json(inMemoryMetadata));
 
@@ -627,6 +629,146 @@ app.post('/api/user/reviews/track_progress', async (req, res) => {
     }
 });
 
+// --- RECOMMENDATION ENDPOINTS & LOGIC ---
+
+// Helper function to get a user's library (URLs of dramas they've favorited or completed)
+const getUserLibrary = async (userId) => {
+    const [rows] = await db.query(`
+        (SELECT drama_url FROM user_favorites WHERE user_id = ?)
+        UNION
+        (SELECT drama_url FROM user_statuses WHERE user_id = ? AND status = 'Completed')
+    `, [userId, userId]);
+    return new Set(rows.map(r => r.drama_url));
+};
+
+// Engine 1: The Hidden Gem
+const getHiddenGem = async (userId) => {
+    const userLibrary = await getUserLibrary(userId);
+    if (userLibrary.size === 0) return null;
+
+    const userProfile = {}; // to store weighted genres/tags
+    inMemoryDramas.filter(d => userLibrary.has(d.url)).forEach(d => {
+        d.genres.forEach(g => { userProfile[g] = (userProfile[g] || 0) + 1.5; });
+        d.tags.forEach(t => { userProfile[t] = (userProfile[t] || 0) + 1; });
+    });
+
+    const candidates = inMemoryDramas.filter(d => 
+        !userLibrary.has(d.url) && d.rating >= 8.5 && d.popularity_rank > 500
+    );
+
+    if (candidates.length === 0) return null;
+
+    const scoredCandidates = candidates.map(d => {
+        let score = 0;
+        d.genres.forEach(g => { if (userProfile[g]) score += userProfile[g]; });
+        d.tags.forEach(t => { if (userProfile[t]) score += userProfile[t]; });
+        return { drama: d, score };
+    });
+
+    const bestMatch = scoredCandidates.sort((a, b) => b.score - a.score)[0];
+    return bestMatch.score > 0 ? bestMatch.drama : null;
+};
+
+// Engine 2: The Genre Specialist
+const getGenreSpecialist = async (userId) => {
+    const [rows] = await db.query(`
+        SELECT drama_url FROM user_statuses 
+        WHERE user_id = ? AND status IN ('Watching', 'Completed')
+    `, [userId]);
+    const watchedUrls = new Set(rows.map(r => r.drama_url));
+    if (watchedUrls.size === 0) return null;
+
+    const genreCounts = {};
+    inMemoryDramas.filter(d => watchedUrls.has(d.url)).forEach(d => {
+        d.genres.forEach(g => { genreCounts[g] = (genreCounts[g] || 0) + 1; });
+    });
+    
+    if (Object.keys(genreCounts).length === 0) return null;
+
+    const topGenre = Object.entries(genreCounts).sort((a, b) => b[1] - a[1])[0][0];
+    
+    const candidates = inMemoryDramas
+        .filter(d => !watchedUrls.has(d.url) && d.genres.includes(topGenre))
+        .sort((a, b) => b.rating - a.rating);
+
+    return candidates.length > 0 ? { drama: candidates[0], genre: topGenre } : null;
+};
+
+// Engine 3: Star Power
+const getStarPower = async (userId) => {
+    const userLibrary = await getUserLibrary(userId);
+    if (userLibrary.size === 0) return null;
+
+    const actorCounts = {};
+    inMemoryDramas.filter(d => userLibrary.has(d.url)).forEach(d => {
+        d.cast.forEach(c => { actorCounts[c.actor_name] = (actorCounts[c.actor_name] || 0) + 1; });
+    });
+
+    if (Object.keys(actorCounts).length === 0) return null;
+
+    const topActor = Object.entries(actorCounts).filter(([name, count]) => count > 1).sort((a, b) => b[1] - a[1])[0];
+    if (!topActor) return null;
+
+    const topActorName = topActor[0];
+    const candidates = inMemoryDramas
+        .filter(d => !userLibrary.has(d.url) && d.cast.some(c => c.actor_name === topActorName))
+        .sort((a, b) => a.popularity_rank - b.popularity_rank);
+
+    return candidates.length > 0 ? { drama: candidates[0], actor: topActorName } : null;
+};
+
+// Engine 4: Peer Pick (Collaborative Filtering Lite)
+const getPeerRecommendation = async (userId) => {
+    // 1. Find top 10 most similar users based on shared favorites (a strong signal of taste)
+    const [similarUserRows] = await db.query(`
+        SELECT uf2.user_id, COUNT(uf2.drama_url) AS common_dramas
+        FROM user_favorites uf1
+        JOIN user_favorites uf2 ON uf1.drama_url = uf2.drama_url AND uf1.user_id != uf2.user_id
+        WHERE uf1.user_id = ?
+        GROUP BY uf2.user_id
+        ORDER BY common_dramas DESC
+        LIMIT 10
+    `, [userId]);
+
+    const similarUserIds = similarUserRows.map(u => u.user_id);
+    if (similarUserIds.length === 0) return null;
+
+    // 2. Find the most favorited drama among these similar users, which the current user hasn't seen
+    const userLibrary = await getUserLibrary(userId);
+    const placeholders = similarUserIds.map(() => '?').join(',');
+    
+    const [recRows] = await db.query(`
+        SELECT drama_url, COUNT(drama_url) AS recommendation_count
+        FROM user_favorites
+        WHERE user_id IN (${placeholders})
+        GROUP BY drama_url
+        ORDER BY recommendation_count DESC
+    `, similarUserIds);
+
+    const topRec = recRows.find(rec => !userLibrary.has(rec.drama_url));
+    if (!topRec) return null;
+
+    return inMemoryDramas.find(d => d.url === topRec.drama_url) || null;
+};
+
+app.get('/api/user/recommendations', authMiddleware, apiLimiter, async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const [hiddenGem, genreSpecialist, starPower, peerPick] = await Promise.all([
+            getHiddenGem(userId),
+            getGenreSpecialist(userId),
+            getStarPower(userId),
+            getPeerRecommendation(userId)
+        ]);
+        res.json({ hiddenGem, genreSpecialist, starPower, peerPick });
+    } catch (error) {
+        console.error("Recommendation engine failed:", error);
+        res.status(500).json({ message: "Could not generate recommendations at this time." });
+    }
+});
+
+
+// --- ADMIN API ENDPOINTS ---
 app.use('/api/admin', authMiddleware, adminAuthMiddleware, apiLimiter);
 app.get('/api/admin/users', async (req, res) => {
     const [rows] = await db.query('SELECT id, username, is_banned, is_admin FROM users');
@@ -697,7 +839,6 @@ process.on('SIGINT', async () => {
     });
 });
 ```
-
 ## 5. Running the Backend
 
 1.  **Start MySQL Container**: Open a terminal in the `/backend` directory and run:

@@ -25,6 +25,7 @@ import { AllReviewsPage } from './components/AllReviewsPage';
 import { BottomNavBar } from './components/BottomNavBar';
 import { AdminPanel } from './components/AdminPanel';
 import { ConflictResolutionModal } from './components/ConflictResolutionModal';
+import { RecommendationsPage } from './components/RecommendationsPage';
 
 
 export default function App() {
@@ -196,6 +197,20 @@ export default function App() {
                         onSelectDrama={handleSelectDrama}
                     />
                 );
+            case 'recommendations':
+                 if (currentUser) {
+                    return (
+                        <RecommendationsPage
+                            userData={userData}
+                            onSelectDrama={handleSelectDrama}
+                            onToggleFavorite={handleToggleFavorite}
+                            onSetStatus={handleSetStatus}
+                            onSetReviewAndTrackProgress={handleSetReviewAndTrackProgress}
+                        />
+                    );
+                 }
+                 navigateTo('home');
+                 return null;
             case 'admin':
                  if (currentUser?.isAdmin) {
                     return <AdminPanel allDramas={allDramas} currentUser={currentUser} />;
@@ -220,6 +235,7 @@ export default function App() {
             <Header 
                 onGoHome={() => navigateTo('home')} 
                 onGoToMyList={() => navigateTo('my-list')}
+                onGoToRecommendations={() => navigateTo('recommendations')}
                 onGoToAllReviews={() => navigateTo('all-reviews')} 
                 onGoToAdminPanel={() => navigateTo('admin')}
                 currentUser={currentUser} 

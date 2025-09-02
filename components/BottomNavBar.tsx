@@ -3,7 +3,7 @@
  * This component provides primary navigation for logged-in users on smaller screens.
  */
 import React from 'react';
-import { HomeIcon, ListBulletIcon, ChatBubbleOvalLeftEllipsisIcon, ShieldCheckIcon } from './Icons';
+import { HomeIcon, ListBulletIcon, ChatBubbleOvalLeftEllipsisIcon, ShieldCheckIcon, LightBulbIcon } from './Icons';
 import { ActiveView } from '../hooks/useUIState';
 import { User } from '../types';
 
@@ -13,11 +13,10 @@ interface BottomNavBarProps {
   currentUser: User | null;
 }
 
-// FIX: Widened the type of navItems's view property to ActiveView. This allows the `adminItem`
-// which has a view of 'admin', to be pushed to arrays created from navItems without a type conflict.
 const navItems: { view: ActiveView; icon: typeof HomeIcon; label: string }[] = [
     { view: 'home', icon: HomeIcon, label: 'Home' },
     { view: 'my-list', icon: ListBulletIcon, label: 'My List' },
+    { view: 'recommendations', icon: LightBulbIcon, label: 'For You' },
     { view: 'all-reviews', icon: ChatBubbleOvalLeftEllipsisIcon, label: 'Reviews' },
 ];
 

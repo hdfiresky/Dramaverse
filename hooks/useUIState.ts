@@ -8,7 +8,7 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import { Drama, ModalStackItem, ConflictData } from '../types';
 import { useLocalStorage } from './useLocalStorage';
 
-export type ActiveView = 'home' | 'my-list' | 'all-reviews' | 'admin';
+export type ActiveView = 'home' | 'my-list' | 'all-reviews' | 'admin' | 'recommendations';
 
 /**
  * A hook to manage the state of the application's user interface.
@@ -103,7 +103,7 @@ export const useUIState = () => {
     useEffect(() => {
         requestAnimationFrame(() => {
             // "My List" should always start from the top. For other pages, restore the scroll position.
-            if (activeView === 'my-list') {
+            if (activeView === 'my-list' || activeView === 'recommendations') {
                 window.scrollTo(0, 0);
             } else {
                 window.scrollTo(0, scrollPositions.current[activeView] || 0);
