@@ -79,17 +79,28 @@ export default function App() {
         (query.get('sortMode') as 'weighted' | 'random') || 'weighted'
     , [query]);
     
-    const [searchTerm, setSearchTerm] = useState(query.get('q') || '');
+    const urlSearchTerm = query.get('q') || '';
+    const [searchTerm, setSearchTerm] = useState(urlSearchTerm);
     const debouncedSearchTerm = useDebounce(searchTerm, 300);
 
     const currentPage = parseInt(query.get('page') || '1', 10);
     const [isFilterSidebarOpen, setFilterSidebarOpen] = useState(false);
     const [randomSeed, setRandomSeed] = useState(() => Date.now());
 
-    // Effect to sync URL with debounced search term
+    // Effect to sync the input field's state if the URL changes (e.g. back/forward button)
     useEffect(() => {
-        updateQuery({ q: debouncedSearchTerm || undefined, page: '1' });
-    }, [debouncedSearchTerm, updateQuery]);
+        if (urlSearchTerm !== searchTerm) {
+            setSearchTerm(urlSearchTerm);
+        }
+    }, [urlSearchTerm, searchTerm]);
+
+    // Effect to sync the URL if the user's debounced input changes
+    useEffect(() => {
+        // This condition prevents the effect from firing when other query params (like 'page') change.
+        if (debouncedSearchTerm !== urlSearchTerm) {
+            updateQuery({ q: debouncedSearchTerm || undefined, page: '1' });
+        }
+    }, [debouncedSearchTerm, urlSearchTerm, updateQuery]);
     
     // Dynamically calculate items per page for full rows
     const { width } = useWindowSize();
