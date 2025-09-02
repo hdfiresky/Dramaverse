@@ -21,6 +21,8 @@ export const useUIState = () => {
     const [modalStack, setModalStack] = useState<ModalStackItem[]>([]);
     /** Boolean flag for the visibility of the authentication (login/register) modal. */
     const [isAuthModalOpen, setAuthModalOpen] = useState(false);
+    /** Boolean flag for the visibility of the Change Password modal. */
+    const [isChangePasswordModalOpen, setChangePasswordModalOpen] = useState(false);
     /** Boolean flag for the visibility of the filter sidebar. */
     const [isFilterSidebarOpen, setFilterSidebarOpen] = useState(false);
     /** The current page number for paginated views. */
@@ -67,7 +69,7 @@ export const useUIState = () => {
 
     // Effect to lock body scroll when any modal is open.
     useEffect(() => {
-        const isModalOpen = modalStack.length > 0 || isAuthModalOpen || !!conflictData;
+        const isModalOpen = modalStack.length > 0 || isAuthModalOpen || isChangePasswordModalOpen || !!conflictData;
         if (isModalOpen) {
             document.body.classList.add('overflow-hidden');
         } else {
@@ -79,7 +81,7 @@ export const useUIState = () => {
         return () => {
             document.body.classList.remove('overflow-hidden');
         };
-    }, [modalStack, isAuthModalOpen, conflictData]);
+    }, [modalStack, isAuthModalOpen, isChangePasswordModalOpen, conflictData]);
 
 
     // All setter functions are wrapped in `useCallback` to ensure they have a stable identity
@@ -132,6 +134,11 @@ export const useUIState = () => {
     /** Closes the authentication modal. */
     const closeAuthModal = useCallback(() => setAuthModalOpen(false), []);
 
+    /** Opens the change password modal. */
+    const openChangePasswordModal = useCallback(() => setChangePasswordModalOpen(true), []);
+    /** Closes the change password modal. */
+    const closeChangePasswordModal = useCallback(() => setChangePasswordModalOpen(false), []);
+
     /** Toggles the filter sidebar's visibility, or sets it to a specific state. */
     const toggleFilterSidebar = useCallback((isOpen?: boolean) => {
         setFilterSidebarOpen(prev => isOpen === undefined ? !prev : isOpen);
@@ -152,6 +159,9 @@ export const useUIState = () => {
         isAuthModalOpen,
         openAuthModal,
         closeAuthModal,
+        isChangePasswordModalOpen,
+        openChangePasswordModal,
+        closeChangePasswordModal,
         isFilterSidebarOpen,
         toggleFilterSidebar,
         currentPage,

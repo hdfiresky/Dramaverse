@@ -26,6 +26,7 @@ import { BottomNavBar } from './components/BottomNavBar';
 import { AdminPanel } from './components/AdminPanel';
 import { ConflictResolutionModal } from './components/ConflictResolutionModal';
 import { RecommendationsPage } from './components/RecommendationsPage';
+import { ChangePasswordModal } from './components/ChangePasswordModal';
 
 
 export default function App() {
@@ -38,6 +39,7 @@ export default function App() {
         activeView, navigateTo,
         modalStack, pushModal, popModal, closeAllModals,
         isAuthModalOpen, openAuthModal, closeAuthModal,
+        isChangePasswordModalOpen, openChangePasswordModal, closeChangePasswordModal,
         isFilterSidebarOpen, toggleFilterSidebar,
         currentPage, setCurrentPage,
         theme, toggleTheme,
@@ -49,7 +51,8 @@ export default function App() {
         currentUser, userData, isAuthLoading,
         login, logout, register,
         toggleFavorite, setDramaStatus, setReviewAndTrackProgress,
-        resolveConflict
+        resolveConflict,
+        changePassword,
     } = useAuth(closeAuthModal, openConflictModal); // Pass callbacks.
 
     // `useLocalStorage`: Persists filter and sort settings across browser sessions.
@@ -242,6 +245,7 @@ export default function App() {
                 currentUser={currentUser} 
                 onLoginClick={openAuthModal} 
                 onLogout={handleLogout}
+                onOpenChangePassword={openChangePasswordModal}
                 theme={theme}
                 toggleTheme={toggleTheme}
             />
@@ -264,6 +268,12 @@ export default function App() {
             </main>
 
             <AuthModal isOpen={isAuthModalOpen} onClose={closeAuthModal} onLogin={login} onRegister={register} />
+
+            <ChangePasswordModal 
+                isOpen={isChangePasswordModalOpen} 
+                onClose={closeChangePasswordModal} 
+                onChangePassword={changePassword} 
+            />
 
             <ConflictResolutionModal
                 isOpen={!!conflictData}

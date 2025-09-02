@@ -1,6 +1,7 @@
 
 
 
+
 # Dramaverse Backend Setup Guide (v2 - MySQL)
 
 This document provides a comprehensive guide to setting up and running the optional backend server for the Dramaverse application using **MySQL and Docker**. This version is designed for scalability, persistence, and real-time, multi-device data synchronization.
@@ -626,6 +627,37 @@ app.post('/api/user/reviews/track_progress', async (req, res) => {
         res.status(500).json({ message: 'Failed to update review and progress.' });
     } finally {
         connection.release();
+    }
+});
+
+app.post('/api/user/change-password', async (req, res) => {
+    try {
+        const { currentPassword, newPassword } = req.body;
+        const userId = req.user.id;
+
+        if (!currentPassword || !newPassword || newPassword.length < 6) {
+            return res.status(400).json({ message: "Invalid payload. New password must be at least 6 characters." });
+        }
+
+        const [rows] = await db.query('SELECT password FROM users WHERE id = ?', [userId]);
+        const user = rows[0];
+
+        if (!user) {
+            return res.status(404).json({ message: "User not found." });
+        }
+
+        const isPasswordValid = bcrypt.compareSync(currentPassword, user.password);
+        if (!isPasswordValid) {
+            return res.status(401).json({ message: 'Incorrect current password.' });
+        }
+
+        const newHashedPassword = bcrypt.hashSync(newPassword, 8);
+        await db.execute('UPDATE users SET password = ? WHERE id = ?', [newHashedPassword, userId]);
+
+        res.status(200).json({ message: "Password updated successfully." });
+    } catch (err) {
+        console.error("Password change error:", err);
+        res.status(500).json({ message: "Server error during password change." });
     }
 });
 

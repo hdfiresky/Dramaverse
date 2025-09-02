@@ -461,6 +461,40 @@ export const useAuth = (onLoginSuccess?: () => void, openConflictModal?: (data: 
         );
     }, [authenticatedUpdate, userData.episodeReviews]);
 
+    const changePassword = useCallback(async (currentPassword: string, newPassword: string): Promise<string | null> => {
+        if (!currentUser) return "You must be logged in to change your password.";
+        
+        if (BACKEND_MODE) {
+            try {
+                const res = await fetch(`${API_BASE_URL}/user/change-password`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'include',
+                    body: JSON.stringify({ currentPassword, newPassword })
+                });
+                if (!res.ok) {
+                    const errData = await res.json();
+                    return errData.message || 'Failed to change password.';
+                }
+                return null;
+            } catch (err) {
+                return "Could not connect to the server.";
+            }
+        } else {
+            const storedUser = localUsers[currentUser.username];
+            if (!storedUser || storedUser.password !== currentPassword) {
+                return 'Incorrect current password.';
+            }
+            
+            const updatedUser = { ...storedUser, password: newPassword };
+            setLocalUsers(prevUsers => ({
+                ...prevUsers,
+                [currentUser.username]: updatedUser
+            }));
+            return null;
+        }
+    }, [currentUser, localUsers, setLocalUsers]);
+
     return {
         currentUser,
         userData,
@@ -471,6 +505,7 @@ export const useAuth = (onLoginSuccess?: () => void, openConflictModal?: (data: 
         toggleFavorite,
         setDramaStatus,
         setReviewAndTrackProgress,
-        resolveConflict
+        resolveConflict,
+        changePassword,
     };
 };

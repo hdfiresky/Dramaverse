@@ -1,6 +1,6 @@
-import React from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { User } from '../types';
-import { HomeIcon, ListBulletIcon, UserCircleIcon, SunIcon, MoonIcon, ChatBubbleOvalLeftEllipsisIcon, SparklesIcon } from './Icons';
+import { HomeIcon, ListBulletIcon, UserCircleIcon, SunIcon, MoonIcon, ChatBubbleOvalLeftEllipsisIcon, SparklesIcon, KeyIcon, ChevronDownIcon } from './Icons';
 
 /**
  * @fileoverview Defines the Header component for the application.
@@ -46,6 +46,8 @@ interface HeaderProps {
     onLoginClick: () => void;
     /** Function to log the current user out. */
     onLogout: () => void;
+    /** Function to open the change password modal. */
+    onOpenChangePassword: () => void;
     /** The current theme ('light' or 'dark'). */
     theme: 'light' | 'dark';
     /** Function to toggle the theme. */
@@ -53,12 +55,65 @@ interface HeaderProps {
 }
 
 /**
+ * A dropdown menu component for logged-in user actions.
+ */
+const UserMenu: React.FC<{ user: User; onLogout: () => void; onOpenChangePassword: () => void }> = ({ user, onLogout, onOpenChangePassword }) => {
+    const [isOpen, setIsOpen] = useState(false);
+    const menuRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+                setIsOpen(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, []);
+
+    return (
+        <div className="relative" ref={menuRef}>
+            <button
+                onClick={() => setIsOpen(!isOpen)}
+                className="flex items-center gap-2 px-3 py-2 text-sm font-semibold rounded-md transition-colors bg-brand-primary hover:bg-slate-700"
+                aria-haspopup="true"
+                aria-expanded={isOpen}
+            >
+                <span className="hidden sm:inline">Welcome, {user.username}</span>
+                <UserCircleIcon className="w-5 h-5 sm:hidden" />
+                <ChevronDownIcon className={`w-4 h-4 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+            </button>
+            {isOpen && (
+                <div className="absolute right-0 mt-2 w-48 bg-brand-secondary rounded-md shadow-lg z-20 py-1 ring-1 ring-black/5 animate-fade-in" style={{ animationDuration: '150ms' }}>
+                    <button
+                        onClick={() => { onOpenChangePassword(); setIsOpen(false); }}
+                        className="w-full text-left px-3 py-2 text-sm flex items-center gap-3 transition-colors hover:bg-brand-primary"
+                    >
+                        <KeyIcon className="w-4 h-4" />
+                        <span>Change Password</span>
+                    </button>
+                    <div className="my-1 h-px bg-slate-200 dark:bg-slate-700"></div>
+                    <button
+                        onClick={onLogout}
+                        className="w-full text-left px-3 py-2 text-sm text-red-400 flex items-center gap-3 transition-colors hover:bg-brand-primary"
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15m3 0l3-3m0 0l-3-3m3 3H9" /></svg>
+                        <span>Logout</span>
+                    </button>
+                </div>
+            )}
+        </div>
+    );
+};
+
+
+/**
  * The main header component for the application. It is sticky and provides top-level navigation.
  * It adapts its display based on whether a user is logged in.
  * @param {HeaderProps} props - The props for the Header component.
  * @returns {React.ReactElement} The rendered header element.
  */
-export const Header: React.FC<HeaderProps> = ({ onGoHome, onGoToMyList, onGoToAllReviews, onGoToAdminPanel, onGoToRecommendations, currentUser, onLoginClick, onLogout, theme, toggleTheme }) => (
+export const Header: React.FC<HeaderProps> = ({ onGoHome, onGoToMyList, onGoToAllReviews, onGoToAdminPanel, onGoToRecommendations, currentUser, onLoginClick, onLogout, onOpenChangePassword, theme, toggleTheme }) => (
     <header className="bg-brand-secondary/80 backdrop-blur-sm sticky top-0 z-30 shadow-md dark:shadow-none">
         <div className="h-16 flex items-center justify-between px-4 sm:px-6 lg:px-8">
             {/* Site Title/Logo - navigates home on click */}
@@ -132,10 +187,7 @@ export const Header: React.FC<HeaderProps> = ({ onGoHome, onGoToMyList, onGoToAl
 
                 {/* Auth-related UI */}
                 {currentUser ? (
-                    <div className="flex items-center gap-3">
-                        <span className="text-sm hidden sm:inline">Welcome, {currentUser.username}</span>
-                        <button onClick={onLogout} className="px-4 py-2 text-sm font-semibold bg-red-600 hover:bg-red-700 rounded-md transition-colors text-white">Logout</button>
-                    </div>
+                    <UserMenu user={currentUser} onLogout={onLogout} onOpenChangePassword={onOpenChangePassword} />
                 ) : (
                     <button 
                         onClick={onLoginClick} 

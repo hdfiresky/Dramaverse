@@ -284,7 +284,7 @@ const UserManagementModal: React.FC<UserManagementModalProps> = ({ user, current
                     </div>
                     <div>
                         <h4 className="text-sm font-semibold text-slate-400 mb-2 mt-4">Sensitive Actions</h4>
-                         <button onClick={onResetPassword} className="w-full text-left p-3 hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center gap-3 rounded-md">
+                         <button onClick={onResetPassword} disabled={currentUser?.username === user.username} className="w-full text-left p-3 hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center gap-3 rounded-md disabled:opacity-50 disabled:cursor-not-allowed">
                             <KeyIcon className="w-5 h-5 text-indigo-400" />
                             <div>
                                 <p className="font-semibold">Reset Password</p>
