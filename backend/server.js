@@ -156,10 +156,10 @@ async function seedDatabase() {
 async function getMetadata() {
     if (cachedMetadata) return cachedMetadata;
     const queries = {
-        genres: `SELECT DISTINCT JSON_UNQUOTE(genre_item.genre) AS genre FROM dramas, JSON_TABLE(data->'$.genres', '$[*]' COLUMNS(genre VARCHAR(255) PATH '$')) AS genre_item WHERE JSON_UNQUOTE(genre_item.genre) IS NOT NULL ORDER BY genre`,
-        tags: `SELECT DISTINCT JSON_UNQUOTE(tag_item.tag) AS tag FROM dramas, JSON_TABLE(data->'$.tags', '$[*]' COLUMNS(tag VARCHAR(255) PATH '$')) AS tag_item WHERE JSON_UNQUOTE(tag_item.tag) IS NOT NULL ORDER BY tag`,
+        genres: `SELECT DISTINCT JSON_UNQUOTE(genre_item.genre) AS genre FROM dramas, JSON_TABLE(JSON_EXTRACT(data, '$.genres'), '$[*]' COLUMNS(genre VARCHAR(255) PATH '$')) AS genre_item WHERE JSON_UNQUOTE(genre_item.genre) IS NOT NULL ORDER BY genre`,
+        tags: `SELECT DISTINCT JSON_UNQUOTE(tag_item.tag) AS tag FROM dramas, JSON_TABLE(JSON_EXTRACT(data, '$.tags'), '$[*]' COLUMNS(tag VARCHAR(255) PATH '$')) AS tag_item WHERE JSON_UNQUOTE(tag_item.tag) IS NOT NULL ORDER BY tag`,
         countries: `SELECT DISTINCT JSON_UNQUOTE(JSON_EXTRACT(data, '$.country')) AS country FROM dramas WHERE JSON_UNQUOTE(JSON_EXTRACT(data, '$.country')) IS NOT NULL ORDER BY country`,
-        cast: `SELECT DISTINCT JSON_UNQUOTE(cast_item.actor_name) AS actor_name FROM dramas, JSON_TABLE(data->'$.cast', '$[*]' COLUMNS(actor_name VARCHAR(255) PATH '$.actor_name')) AS cast_item WHERE JSON_UNQUOTE(cast_item.actor_name) IS NOT NULL ORDER BY actor_name`
+        cast: `SELECT DISTINCT JSON_UNQUOTE(cast_item.actor_name) AS actor_name FROM dramas, JSON_TABLE(JSON_EXTRACT(data, '$.cast'), '$[*]' COLUMNS(actor_name VARCHAR(255) PATH '$.actor_name')) AS cast_item WHERE JSON_UNQUOTE(cast_item.actor_name) IS NOT NULL ORDER BY actor_name`
     };
     const [genresRows] = await db.query(queries.genres);
     const [tagsRows] = await db.query(queries.tags);
@@ -251,10 +251,10 @@ app.get('/api/dramas', apiLimiter, async (req, res) => {
         if (search) { whereClauses.push('title LIKE ?'); params.push(`%${search}%`); }
         if (parseFloat(minRating) > 0) { whereClauses.push(`JSON_EXTRACT(data, '$.rating') >= ?`); params.push(parseFloat(minRating)); }
         if (countries) { whereClauses.push(`JSON_EXTRACT(data, '$.country') IN (?)`); params.push(countries.split(',')); }
-        if (genres) genres.split(',').forEach(g => { whereClauses.push(`JSON_CONTAINS(data->'$.genres', CAST(? AS JSON))`); params.push(JSON.stringify(g)); });
-        if (excludeGenres) excludeGenres.split(',').forEach(g => { whereClauses.push(`NOT JSON_CONTAINS(data->'$.genres', CAST(? AS JSON))`); params.push(JSON.stringify(g)); });
-        if (tags) tags.split(',').forEach(t => { whereClauses.push(`JSON_CONTAINS(data->'$.tags', CAST(? AS JSON))`); params.push(JSON.stringify(t)); });
-        if (excludeTags) excludeTags.split(',').forEach(t => { whereClauses.push(`NOT JSON_CONTAINS(data->'$.tags', CAST(? AS JSON))`); params.push(JSON.stringify(t)); });
+        if (genres) genres.split(',').forEach(g => { whereClauses.push(`JSON_CONTAINS(JSON_EXTRACT(data, '$.genres'), CAST(? AS JSON))`); params.push(JSON.stringify(g)); });
+        if (excludeGenres) excludeGenres.split(',').forEach(g => { whereClauses.push(`NOT JSON_CONTAINS(JSON_EXTRACT(data, '$.genres'), CAST(? AS JSON))`); params.push(JSON.stringify(g)); });
+        if (tags) tags.split(',').forEach(t => { whereClauses.push(`JSON_CONTAINS(JSON_EXTRACT(data, '$.tags'), CAST(? AS JSON))`); params.push(JSON.stringify(t)); });
+        if (excludeTags) excludeTags.split(',').forEach(t => { whereClauses.push(`NOT JSON_CONTAINS(JSON_EXTRACT(data, '$.tags'), CAST(? AS JSON))`); params.push(JSON.stringify(t)); });
         if (cast) cast.split(',').forEach(actor => { whereClauses.push(`JSON_SEARCH(data, 'one', ?, NULL, '$.cast[*].actor_name') IS NOT NULL`); params.push(actor); });
         const whereString = whereClauses.join(' AND ');
         const [[{ total }]] = await db.query(`SELECT COUNT(*) as total FROM dramas WHERE ${whereString}`, params);
@@ -303,7 +303,7 @@ app.get('/api/dramas', apiLimiter, async (req, res) => {
                 console.warn("Could not parse 'sort' query parameter. Using default sort.");
             }
         }
-        const pageNum = parseInt(page), limitNum = parseInt(limit), offset = (pageNum - 1) * limitNum;
+        const pageNum = parseInt(page, 10) || 1, limitNum = parseInt(limit, 10) || 24, offset = (pageNum - 1) * limitNum;
         const [rows] = await db.query(`SELECT url, title, data FROM dramas WHERE ${whereString} ORDER BY ${orderBy} LIMIT ? OFFSET ?`, [...params, limitNum, offset]);
         res.json({ totalItems: total, dramas: rows.map(r => ({ ...JSON.parse(r.data), url: r.url, title: r.title })), currentPage: pageNum, totalPages: Math.ceil(total / limitNum) });
     } catch (err) {
@@ -350,16 +350,16 @@ app.get('/api/dramas/recommendations/similar', apiLimiter, async (req, res) => {
     const baseDrama = JSON.parse(baseDramaRow.data);
 
     if (selectedCriteria.includes('genres') && baseDrama.genres.length > 0) {
-        scoreClauses.push(`(SELECT COUNT(*) FROM JSON_TABLE(?, '$[*]' COLUMNS(val VARCHAR(255) PATH '$')) AS j1 JOIN JSON_TABLE(d2.data->'$.genres', '$[*]' COLUMNS(val VARCHAR(255) PATH '$')) AS j2 ON j1.val = j2.val) * ?`);
+        scoreClauses.push(`(SELECT COUNT(*) FROM JSON_TABLE(?, '$[*]' COLUMNS(val VARCHAR(255) PATH '$')) AS j1 JOIN JSON_TABLE(JSON_EXTRACT(d2.data, '$.genres'), '$[*]' COLUMNS(val VARCHAR(255) PATH '$')) AS j2 ON j1.val = j2.val) * ?`);
         params.push(JSON.stringify(baseDrama.genres), weights.genres / baseDrama.genres.length);
     }
     if (selectedCriteria.includes('tags') && baseDrama.tags.length > 0) {
-        scoreClauses.push(`(SELECT COUNT(*) FROM JSON_TABLE(?, '$[*]' COLUMNS(val VARCHAR(255) PATH '$')) AS j1 JOIN JSON_TABLE(d2.data->'$.tags', '$[*]' COLUMNS(val VARCHAR(255) PATH '$')) AS j2 ON j1.val = j2.val) * ?`);
+        scoreClauses.push(`(SELECT COUNT(*) FROM JSON_TABLE(?, '$[*]' COLUMNS(val VARCHAR(255) PATH '$')) AS j1 JOIN JSON_TABLE(JSON_EXTRACT(d2.data, '$.tags'), '$[*]' COLUMNS(val VARCHAR(255) PATH '$')) AS j2 ON j1.val = j2.val) * ?`);
         params.push(JSON.stringify(baseDrama.tags), weights.tags / baseDrama.tags.length);
     }
     if (selectedCriteria.includes('cast') && baseDrama.cast.length > 0) {
         const actorNames = JSON.stringify(baseDrama.cast.map(c => c.actor_name));
-        scoreClauses.push(`(SELECT COUNT(*) FROM JSON_TABLE(?, '$[*]' COLUMNS(val VARCHAR(255) PATH '$')) AS j1 JOIN JSON_TABLE(d2.data->'$.cast', '$[*]' COLUMNS(val VARCHAR(255) PATH '$.actor_name')) AS j2 ON j1.val = j2.val) * ?`);
+        scoreClauses.push(`(SELECT COUNT(*) FROM JSON_TABLE(?, '$[*]' COLUMNS(val VARCHAR(255) PATH '$')) AS j1 JOIN JSON_TABLE(JSON_EXTRACT(d2.data, '$.cast'), '$[*]' COLUMNS(val VARCHAR(255) PATH '$.actor_name')) AS j2 ON j1.val = j2.val) * ?`);
         params.push(actorNames, weights.cast / baseDrama.cast.length);
     }
     if (selectedCriteria.includes('rating')) {
@@ -417,14 +417,14 @@ app.post('/api/user/favorites', async (req, res) => {
     const { dramaUrl, isFavorite } = req.body;
     const now = Date.now();
     const sql = isFavorite ? 'INSERT INTO user_favorites (user_id, drama_url, updated_at) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE updated_at=?' : 'DELETE FROM user_favorites WHERE user_id = ? AND drama_url = ?';
-    const [result] = await db.execute(sql, isFavorite ? [req.user.id, dramaUrl, now, now] : [req.user.id, dramaUrl]);
+    const params = isFavorite ? [req.user.id, dramaUrl, now, now] : [req.user.id, dramaUrl];
+    const [result] = await db.execute(sql, params);
     if (result.affectedRows > 0) emitToUserRoom(req.user.id, 'favorite_updated', { dramaUrl, isFavorite, updatedAt: now });
     res.sendStatus(200);
 });
 app.post('/api/user/statuses', async (req, res) => {
     try {
         const { dramaUrl, status, currentEpisode } = req.body;
-        // Basic validation
         if (typeof dramaUrl !== 'string' || !dramaUrl) {
             return res.status(400).json({ message: 'Invalid payload: dramaUrl is required.' });
         }
@@ -542,21 +542,21 @@ app.get('/api/user/recommendations', apiLimiter, async (req, res) => {
 
         const [topGenreRows] = await db.query(`
             SELECT g.genre, COUNT(*) c FROM user_statuses us JOIN dramas d ON us.drama_url = d.url,
-            JSON_TABLE(d.data->'$.genres', '$[*]' COLUMNS(genre VARCHAR(255) PATH '$')) g
+            JSON_TABLE(JSON_EXTRACT(d.data, '$.genres'), '$[*]' COLUMNS(genre VARCHAR(255) PATH '$')) g
             WHERE us.user_id = ? AND us.status = 'Completed' GROUP BY g.genre ORDER BY c DESC, RAND() LIMIT 1
         `, [userId]);
 
         if (topGenreRows.length > 0) {
             const topGenre = topGenreRows[0].genre;
             const [[gs]] = await db.query(`
-                SELECT d.url, d.title, d.data FROM dramas d, JSON_TABLE(d.data->'$.genres', '$[*]' COLUMNS(genre VARCHAR(255) PATH '$')) g
+                SELECT d.url, d.title, d.data FROM dramas d, JSON_TABLE(JSON_EXTRACT(d.data, '$.genres'), '$[*]' COLUMNS(genre VARCHAR(255) PATH '$')) g
                 WHERE g.genre = ? AND d.url NOT IN (?) ORDER BY CAST(JSON_EXTRACT(d.data, '$.rating') AS DECIMAL(10,1)) DESC, 
                 CAST(JSON_EXTRACT(d.data, '$.rating_count') AS UNSIGNED) DESC LIMIT 1
             `, [topGenre, seenUrlsParam]);
             if (gs) results.genreSpecialist = { drama: {...JSON.parse(gs.data), url: gs.url, title: gs.title}, genre: topGenre };
             
             const [[hg]] = await db.query(`
-                SELECT d.url, d.title, d.data FROM dramas d, JSON_TABLE(d.data->'$.genres', '$[*]' COLUMNS(genre VARCHAR(255) PATH '$')) g
+                SELECT d.url, d.title, d.data FROM dramas d, JSON_TABLE(JSON_EXTRACT(d.data, '$.genres'), '$[*]' COLUMNS(genre VARCHAR(255) PATH '$')) g
                 WHERE JSON_EXTRACT(d.data, '$.rating') > 8.8 AND CAST(JSON_EXTRACT(d.data, '$.popularity_rank') AS UNSIGNED) > 800
                 AND g.genre = ? AND d.url NOT IN (?) ORDER BY RAND() LIMIT 1
             `, [topGenre, seenUrlsParam]);
@@ -565,14 +565,14 @@ app.get('/api/user/recommendations', apiLimiter, async (req, res) => {
         
         const [topActorRows] = await db.query(`
             SELECT c.actor_name, COUNT(*) as cnt FROM user_statuses us JOIN dramas d ON us.drama_url = d.url,
-            JSON_TABLE(d.data->'$.cast', '$[*]' COLUMNS(actor_name VARCHAR(255) PATH '$.actor_name')) as c
+            JSON_TABLE(JSON_EXTRACT(d.data, '$.cast'), '$[*]' COLUMNS(actor_name VARCHAR(255) PATH '$.actor_name')) as c
             WHERE us.user_id = ? AND us.status = 'Completed' GROUP BY c.actor_name ORDER BY cnt DESC, RAND() LIMIT 1
         `, [userId]);
 
         if (topActorRows.length > 0) {
             const topActor = topActorRows[0].actor_name;
             const [[sp]] = await db.query(`
-                SELECT d.url, d.title, d.data FROM dramas d, JSON_TABLE(d.data->'$.cast', '$[*]' COLUMNS(actor_name VARCHAR(255) PATH '$.actor_name')) c
+                SELECT d.url, d.title, d.data FROM dramas d, JSON_TABLE(JSON_EXTRACT(d.data, '$.cast'), '$[*]' COLUMNS(actor_name VARCHAR(255) PATH '$.actor_name')) c
                 WHERE c.actor_name = ? AND d.url NOT IN (?) ORDER BY CAST(JSON_EXTRACT(d.data, '$.popularity_rank') AS UNSIGNED) ASC LIMIT 1
             `, [topActor, seenUrlsParam]);
             if (sp) results.starPower = { drama: {...JSON.parse(sp.data), url: sp.url, title: sp.title}, actor: topActor };
