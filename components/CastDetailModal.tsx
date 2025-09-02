@@ -2,17 +2,16 @@
  * @fileoverview Defines a modal for displaying all dramas a specific actor has been in.
  * This allows for actor-centric discovery.
  */
-import React, { useMemo } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import ReactDOM from 'react-dom';
 import { Drama, UserData, UserDramaStatus } from '../types';
 import { DramaCard } from './DramaCard';
 import { CloseIcon, ChevronLeftIcon } from './Icons';
+import { BACKEND_MODE, API_BASE_URL } from '../config';
 
 interface CastDetailModalProps {
     /** The name of the actor to display dramas for. */
     actorName: string;
-    /** The complete list of all dramas in the library. */
-    allDramas: Drama[];
     /** Callback to close all modals. */
     onCloseAll: () => void;
     /** Callback to pop the current modal from the stack. */
@@ -42,7 +41,6 @@ interface CastDetailModalProps {
  */
 export const CastDetailModal: React.FC<CastDetailModalProps> = ({
     actorName,
-    allDramas,
     onCloseAll,
     onPopModal,
     onSelectDrama,
@@ -53,17 +51,32 @@ export const CastDetailModal: React.FC<CastDetailModalProps> = ({
     isUserLoggedIn,
     onSetReviewAndTrackProgress
 }) => {
-    // Memoize the list of dramas for the selected actor to avoid re-filtering on every render.
-    // The calculation only runs if the `allDramas` list or `actorName` changes.
-    const actorDramas = useMemo(() => {
-        return allDramas
-            .filter(drama => 
-                // Check if the actor's name is in the drama's cast list.
-                drama.cast.some(castMember => castMember.actor_name === actorName)
-            )
-            // Sort the actor's dramas by rating in descending order for relevance.
-            .sort((a,b) => b.rating - a.rating);
-    }, [allDramas, actorName]);
+    const [dramas, setDramas] = useState<Drama[]>([]);
+    const [isLoading, setIsLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
+
+    useEffect(() => {
+        const fetchActorDramas = async () => {
+            setIsLoading(true);
+            setError(null);
+            try {
+                if (!BACKEND_MODE) {
+                     throw new Error("This feature requires backend mode.");
+                }
+                const res = await fetch(`${API_BASE_URL}/dramas/by-actor/${encodeURIComponent(actorName)}`);
+                if (!res.ok) throw new Error("Failed to fetch actor's dramas.");
+                const data = await res.json();
+                setDramas(data);
+            } catch (e) {
+                setError(e instanceof Error ? e.message : "An unknown error occurred.");
+            } finally {
+                setIsLoading(false);
+            }
+        };
+
+        fetchActorDramas();
+    }, [actorName]);
+
 
     return ReactDOM.createPortal(
         <div 
@@ -86,9 +99,11 @@ export const CastDetailModal: React.FC<CastDetailModalProps> = ({
                             <h2 className="text-xl font-bold text-brand-text-primary truncate">
                                 Dramas featuring <span className="text-brand-accent">{actorName}</span>
                             </h2>
-                            <p className="text-sm text-brand-text-secondary">
-                                {actorDramas.length} {actorDramas.length === 1 ? 'drama' : 'dramas'}
-                            </p>
+                            {!isLoading && !error && (
+                                <p className="text-sm text-brand-text-secondary">
+                                    {dramas.length} {dramas.length === 1 ? 'drama' : 'dramas'}
+                                </p>
+                            )}
                         </div>
                     </div>
                     
@@ -97,9 +112,15 @@ export const CastDetailModal: React.FC<CastDetailModalProps> = ({
                     </button>
                 </div>
                 <div className="flex-1 overflow-y-auto p-6 custom-scrollbar">
-                    {actorDramas.length > 0 ? (
+                    {isLoading ? (
+                        <div className="flex justify-center items-center h-full">
+                           <div className="w-12 h-12 border-4 border-dashed rounded-full animate-spin border-brand-accent"></div>
+                        </div>
+                    ) : error ? (
+                        <p className="text-center text-red-400 py-10">{error}</p>
+                    ) : dramas.length > 0 ? (
                         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-                            {actorDramas.map(drama => (
+                            {dramas.map(drama => (
                                 // Re-use the standard DramaCard component for a consistent look and feel.
                                 <DramaCard
                                     key={drama.url}

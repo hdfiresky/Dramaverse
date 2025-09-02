@@ -9,12 +9,11 @@ import { Drama, Filters, Recommendation, CastMember } from '../types';
 import {
     CloseIcon, StarIcon, ChevronLeftIcon
 } from './Icons';
+import { BACKEND_MODE, API_BASE_URL } from '../config';
 
 interface DramaDetailModalProps {
     /** The drama object to display details for. */
     drama: Drama;
-    /** The complete list of all dramas, for looking up recommendations. */
-    allDramas: Drama[];
     /** Callback to close all modals in the stack. */
     onCloseAll: () => void;
     /** Callback to pop the current modal from the stack (go back). */
@@ -31,31 +30,6 @@ interface DramaDetailModalProps {
     showBackButton: boolean;
 }
 
-/** A decorated recommendation object that includes the full drama data if it exists. */
-interface DisplayRecommendation extends Recommendation {
-    fullDrama?: Drama;
-}
-
-
-// --- Similarity Engine Logic ---
-
-// A simple list of common English words to ignore when comparing descriptions for similarity.
-const stopWords = new Set(['a', 'an', 'the', 'in', 'on', 'of', 'for', 'to', 'with', 'and', 'or', 'is', 'was', 'were', 'it', 'i', 'you', 'he', 'she', 'they', 'we', 'has', 'had', 'have', 'but', 'not']);
-
-/**
- * Calculates the Jaccard similarity coefficient between two sets of strings.
- * Jaccard Similarity = (size of intersection) / (size of union)
- * @param {Set<string>} setA The first set.
- * @param {Set<string>} setB The second set.
- * @returns {number} A similarity score between 0 (no similarity) and 1 (identical).
- */
-const jaccardSimilarity = (setA: Set<string>, setB: Set<string>): number => {
-    const intersection = new Set([...setA].filter(x => setB.has(x)));
-    const union = new Set([...setA, ...setB]);
-    return union.size === 0 ? 0 : intersection.size / union.size;
-};
-
-// Criteria available for user selection in the recommendation engine.
 const CRITERIA_OPTIONS: { id: 'genres' | 'tags' | 'description' | 'cast' | 'rating' | 'rating_count', label: string }[] = [
     { id: 'genres', label: 'Genres' },
     { id: 'tags', label: 'Tags' },
@@ -67,60 +41,83 @@ const CRITERIA_OPTIONS: { id: 'genres' | 'tags' | 'description' | 'cast' | 'rati
 
 /**
  * A helper component to render a drama card within the recommendation section.
- * It's a simplified version of DramaCard, optimized for this context.
  */
 const RecommendationCard: React.FC<{
-    title: string;
-    imageUrl: string;
-    onClick?: () => void;
+    drama: Drama;
+    onClick?: (drama: Drama) => void;
     score?: number;
-}> = ({ title, imageUrl, onClick, score }) => (
+}> = ({ drama, onClick, score }) => (
     <div 
         className={`bg-brand-primary rounded-lg overflow-hidden shadow-md transform transition-all duration-300 group animate-fade-in ${onClick ? 'hover:shadow-xl hover:-translate-y-1 cursor-pointer' : 'cursor-default'}`}
-        onClick={onClick}
-        aria-label={title}
+        onClick={() => onClick?.(drama)}
+        aria-label={drama.title}
         role={onClick ? 'button' : 'img'}
     >
         <div className="relative">
-            <img src={imageUrl} alt={title} className="w-full h-48 md:h-64 object-cover" />
-
-            {/* Display the similarity score if provided */}
+            <img src={drama.cover_image} alt={drama.title} className="w-full h-48 md:h-64 object-cover" />
             {score !== undefined && (
                 <div className="absolute top-2 right-2 bg-brand-accent text-white text-xs font-bold px-2 py-1 rounded-full shadow-lg flex items-center gap-1">
                     <span>{score}</span>
                 </div>
             )}
-            
             <div className="absolute bottom-0 left-0 right-0 p-2 bg-gradient-to-t from-black/80 to-transparent">
-                <h3 className="text-sm font-semibold truncate text-brand-text-primary">{title}</h3>
+                <h3 className="text-sm font-semibold truncate text-brand-text-primary">{drama.title}</h3>
             </div>
         </div>
     </div>
 );
 
 
-/**
- * A large modal component that provides a comprehensive view of a single drama.
- * It features a two-column layout for details, user-specific actions, and a
- * tabbed recommendation section with both curated and similarity-based results.
- * @param {DramaDetailModalProps} props - The props for the DramaDetailModal component.
- * @returns {React.ReactElement} The rendered detail modal.
- */
-export const DramaDetailModal: React.FC<DramaDetailModalProps> = ({ drama, allDramas, onCloseAll, onPopModal, onSelectDrama, onSetQuickFilter, onSelectActor, filters, showBackButton }) => {
+export const DramaDetailModal: React.FC<DramaDetailModalProps> = ({ drama, onCloseAll, onPopModal, onSelectDrama, onSetQuickFilter, onSelectActor, filters, showBackButton }) => {
     const [activeTab, setActiveTab] = useState<'curated' | 'similarity'>('curated');
-    const [selectedCriteria, setSelectedCriteria] = useState<string[]>(['genres', 'tags', 'rating']); // Sensible default selection
+    const [selectedCriteria, setSelectedCriteria] = useState<string[]>(['genres', 'tags', 'rating']);
+    const [recommendations, setRecommendations] = useState<any[]>([]);
+    const [isLoadingRecs, setIsLoadingRecs] = useState(false);
+    const [recsError, setRecsError] = useState<string | null>(null);
     const scrollContainerRef = useRef<HTMLDivElement>(null);
 
-    // Effect to reset internal state when the drama changes, ensuring the modal is fresh.
     useEffect(() => {
         if (drama) {
             setActiveTab('curated');
             setSelectedCriteria(['genres', 'tags', 'rating']);
-            if (scrollContainerRef.current) {
-                scrollContainerRef.current.scrollTop = 0;
-            }
+            if (scrollContainerRef.current) scrollContainerRef.current.scrollTop = 0;
         }
     }, [drama]);
+
+    useEffect(() => {
+        const getRecommendations = async () => {
+            if (!drama || !BACKEND_MODE) return;
+
+            setIsLoadingRecs(true);
+            setRecsError(null);
+
+            try {
+                let endpoint = '';
+                if (activeTab === 'curated') {
+                    endpoint = `${API_BASE_URL}/dramas/recommendations/curated/${encodeURIComponent(drama.url)}`;
+                } else { // similarity
+                    if (selectedCriteria.length === 0) {
+                        setRecommendations([]);
+                        setIsLoadingRecs(false);
+                        return;
+                    }
+                    const params = new URLSearchParams({ criteria: selectedCriteria.join(',') });
+                    endpoint = `${API_BASE_URL}/dramas/recommendations/similar/${encodeURIComponent(drama.url)}?${params}`;
+                }
+                
+                const res = await fetch(endpoint);
+                if (!res.ok) throw new Error("Failed to fetch recommendations.");
+                const data = await res.json();
+                setRecommendations(data);
+            } catch (e) {
+                setRecsError(e instanceof Error ? e.message : "Unknown error.");
+            } finally {
+                setIsLoadingRecs(false);
+            }
+        };
+
+        getRecommendations();
+    }, [drama, activeTab, selectedCriteria]);
 
     const toggleCriterion = (criterionId: string) => {
         setSelectedCriteria(prev => 
@@ -130,90 +127,6 @@ export const DramaDetailModal: React.FC<DramaDetailModalProps> = ({ drama, allDr
         );
     };
 
-    /**
-     * Memoized calculation for the "Curated" recommendations from the JSON data.
-     * It maps all recommendations and attaches the full Drama object if it can be found.
-     */
-    const curatedRecommendations = useMemo<DisplayRecommendation[]>(() => {
-        if (!drama) return [];
-        const dramaMap = new Map(allDramas.map(d => [d.url, d]));
-        return drama.recommendations.map(rec => ({
-            ...rec,
-            fullDrama: dramaMap.get(rec.url), // Look up the full drama object
-        }));
-    }, [drama, allDramas]);
-
-    /**
-     * Memoized calculation for similarity-based recommendations. This is the core of the engine.
-     * It runs only when the base drama, all dramas list, or selected criteria change.
-     */
-    const similarityRecommendations = useMemo(() => {
-        if (!drama || selectedCriteria.length === 0) return [];
-
-        // Weights assigned to each criterion to tune the importance of each factor in the final score.
-        const weights = { genres: 25, tags: 30, description: 15, cast: 15, rating: 10, rating_count: 5 };
-
-        // Pre-calculate data for the base drama to avoid redundant work inside the loop.
-        const baseDramaData = {
-            genres: new Set(drama.genres),
-            tags: new Set(drama.tags),
-            description: new Set(drama.description.toLowerCase().split(/\s+/).filter(word => !stopWords.has(word) && word.length > 2)),
-            cast: new Set(drama.cast.map(c => c.actor_name)),
-            rating: drama.rating,
-            // Use log to handle the large range of rating counts more effectively.
-            rating_count: drama.rating_count > 0 ? Math.log(drama.rating_count) : 0,
-        };
-        
-        // Find min/max log rating count across all dramas for normalization.
-        const logRatingCounts = allDramas.map(d => (d.rating_count > 0 ? Math.log(d.rating_count) : 0)).filter(l => l > 0);
-        const maxLogRatingCount = Math.max(...logRatingCounts);
-        const minLogRatingCount = Math.min(...logRatingCounts);
-        const logRatingCountRange = maxLogRatingCount - minLogRatingCount;
-
-        const scoredDramas = allDramas
-            .filter(d => d.url !== drama.url) // Exclude the drama itself
-            // FIX: Explicitly type `candidate` as Drama to fix type inference issues with Set creation.
-            .map((candidate: Drama) => {
-                let totalScore = 0;
-
-                // For each selected criterion, calculate a score and add it to the total.
-                if (selectedCriteria.includes('genres')) {
-                    totalScore += jaccardSimilarity(baseDramaData.genres, new Set(candidate.genres)) * weights.genres;
-                }
-                if (selectedCriteria.includes('tags')) {
-                    totalScore += jaccardSimilarity(baseDramaData.tags, new Set(candidate.tags)) * weights.tags;
-                }
-                if (selectedCriteria.includes('description')) {
-                    const candidateDesc = new Set(candidate.description.toLowerCase().split(/\s+/).filter(word => !stopWords.has(word) && word.length > 2));
-                    totalScore += jaccardSimilarity(baseDramaData.description, candidateDesc) * weights.description;
-                }
-                if (selectedCriteria.includes('cast')) {
-                    totalScore += jaccardSimilarity(baseDramaData.cast, new Set(candidate.cast.map(c => c.actor_name))) * weights.cast;
-                }
-                if (selectedCriteria.includes('rating')) {
-                    // Score is based on how close the ratings are (normalized).
-                    const diff = Math.abs(baseDramaData.rating - candidate.rating);
-                    totalScore += (1 - (diff / 10)) * weights.rating; // Max rating is 10.
-                }
-                if (selectedCriteria.includes('rating_count')) {
-                    const candidateLogCount = candidate.rating_count > 0 ? Math.log(candidate.rating_count) : 0;
-                    if (candidateLogCount > 0 && logRatingCountRange > 0) {
-                        const diff = Math.abs(baseDramaData.rating_count - candidateLogCount);
-                        const score = 1 - (diff / logRatingCountRange);
-                        totalScore += (score > 0 ? score : 0) * weights.rating_count;
-                    }
-                }
-                
-                return { drama: candidate, score: Math.round(totalScore) };
-            })
-            .filter(item => item.score > 10) // Only show dramas with a meaningful similarity score.
-            .sort((a, b) => b.score - a.score) // Sort by highest score first.
-            .slice(0, 10); // Take the top 10 results.
-
-        return scoredDramas;
-    }, [drama, allDramas, selectedCriteria]);
-
-    // Memoize rendered UI elements like tag lists to prevent re-mapping on every render.
     const genrePills = useMemo(() => drama ? drama.genres.map(g => (
         <button key={g} onClick={() => onSetQuickFilter('genre', g)} 
             className={`text-xs font-semibold px-2 py-1 rounded transition-colors ${filters.genres.includes(g) ? "bg-sky-500/50 text-sky-200 cursor-default" : "bg-brand-primary hover:bg-brand-accent"}`}>
@@ -235,7 +148,6 @@ export const DramaDetailModal: React.FC<DramaDetailModalProps> = ({ drama, allDr
             <p className="text-xs text-brand-text-secondary truncate">{member.character_name}</p>
         </div>
     )) : [], [drama, onSelectActor]);
-
 
     return ReactDOM.createPortal(
         <div className={`fixed inset-0 bg-black/70 z-40 flex items-center justify-center transition-opacity duration-300 ${drama ? 'opacity-100' : 'opacity-0 pointer-events-none'}`} onClick={onCloseAll}>
@@ -299,46 +211,52 @@ export const DramaDetailModal: React.FC<DramaDetailModalProps> = ({ drama, allDr
                                 </nav>
                             </div>
 
-                            {activeTab === 'curated' && (
-                                <div className="animate-fade-in" role="tabpanel">
-                                    {curatedRecommendations.length > 0 ? (
-                                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-                                            {curatedRecommendations.map(rec => (
-                                                <RecommendationCard key={rec.url} title={rec.title} imageUrl={rec.image_url} onClick={rec.fullDrama ? () => onSelectDrama(rec.fullDrama!) : undefined} />
-                                            ))}
+                            {isLoadingRecs ? (
+                                <div className="flex justify-center items-center h-48"><div className="w-10 h-10 border-4 border-dashed rounded-full animate-spin border-brand-accent"></div></div>
+                            ) : recsError ? (
+                                <p className="text-center text-red-400 py-10">{recsError}</p>
+                            ) : (
+                                <>
+                                    {activeTab === 'curated' && (
+                                        <div className="animate-fade-in" role="tabpanel">
+                                            {recommendations.length > 0 ? (
+                                                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+                                                    {recommendations.map((rec: Drama) => (
+                                                        <RecommendationCard key={rec.url} drama={rec} onClick={onSelectDrama} />
+                                                    ))}
+                                                </div>
+                                            ) : (
+                                                <p className="text-center text-brand-text-secondary py-10">No curated recommendations available for this drama.</p>
+                                            )}
                                         </div>
-                                    ) : (
-                                        <p className="text-center text-brand-text-secondary py-10">No curated recommendations available for this drama.</p>
                                     )}
-                                </div>
-                            )}
 
-                            {activeTab === 'similarity' && (
-                                <div className="animate-fade-in" role="tabpanel">
-                                    <p className="text-sm text-brand-text-secondary mb-4">Select criteria to find dramas with similar attributes. More criteria can yield more precise results.</p>
-                                    
-                                    <div className="bg-brand-primary p-4 rounded-lg mb-6">
-                                        <div className="flex space-x-2 overflow-x-auto pb-2 -mb-2 custom-scrollbar">
-                                            {CRITERIA_OPTIONS.map(criterion => (
-                                                <button key={criterion.id} onClick={() => toggleCriterion(criterion.id)} className={`flex-shrink-0 px-3 py-1.5 text-sm font-medium rounded-full transition-colors ${selectedCriteria.includes(criterion.id) ? 'bg-brand-accent text-white shadow-lg' : 'bg-brand-secondary text-brand-text-secondary hover:bg-gray-700'}`} aria-pressed={selectedCriteria.includes(criterion.id)}>
-                                                    {criterion.label}
-                                                </button>
-                                            ))}
+                                    {activeTab === 'similarity' && (
+                                        <div className="animate-fade-in" role="tabpanel">
+                                            <p className="text-sm text-brand-text-secondary mb-4">Select criteria to find dramas with similar attributes. More criteria can yield more precise results.</p>
+                                            <div className="bg-brand-primary p-4 rounded-lg mb-6">
+                                                <div className="flex space-x-2 overflow-x-auto pb-2 -mb-2 custom-scrollbar">
+                                                    {CRITERIA_OPTIONS.map(criterion => (
+                                                        <button key={criterion.id} onClick={() => toggleCriterion(criterion.id)} className={`flex-shrink-0 px-3 py-1.5 text-sm font-medium rounded-full transition-colors ${selectedCriteria.includes(criterion.id) ? 'bg-brand-accent text-white shadow-lg' : 'bg-brand-secondary text-brand-text-secondary hover:bg-gray-700'}`} aria-pressed={selectedCriteria.includes(criterion.id)}>
+                                                            {criterion.label}
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                            {recommendations.length > 0 ? (
+                                                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+                                                    {recommendations.map(({ drama: rec, score }: any) => (
+                                                        <RecommendationCard key={rec.url} drama={rec} score={score} onClick={onSelectDrama} />
+                                                    ))}
+                                                </div>
+                                            ) : (
+                                                <p className="text-center text-brand-text-secondary py-10">
+                                                    {selectedCriteria.length > 0 ? 'No similar dramas found. Try adjusting your criteria.' : 'Select one or more criteria above to generate recommendations.'}
+                                                </p>
+                                            )}
                                         </div>
-                                    </div>
-
-                                    {similarityRecommendations.length > 0 ? (
-                                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-                                            {similarityRecommendations.map(({ drama: rec, score }) => (
-                                                <RecommendationCard key={rec.url} title={rec.title} imageUrl={rec.cover_image} score={score} onClick={() => onSelectDrama(rec)} />
-                                            ))}
-                                        </div>
-                                    ) : (
-                                        <p className="text-center text-brand-text-secondary py-10">
-                                            {selectedCriteria.length > 0 ? 'No similar dramas found. Try adjusting your criteria.' : 'Select one or more criteria above to generate recommendations.'}
-                                        </p>
                                     )}
-                                </div>
+                                </>
                             )}
                         </section>
                     </div>

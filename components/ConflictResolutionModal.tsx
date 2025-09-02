@@ -17,12 +17,12 @@ interface ConflictResolutionModalProps {
     onClose: () => void;
     /**
      * Callback to resolve the conflict.
-     * @param clientPayload The user's local version of the data.
-     * @param serverVersion The server's version of the data.
+     * @param conflictData The original conflict data object.
      * @param resolution Indicates which version to keep ('client' or 'server').
      */
-    onResolve: (clientPayload: any, serverVersion: any, resolution: 'client' | 'server') => void;
+    onResolve: (conflictData: ConflictData, resolution: 'client' | 'server') => void;
 }
+
 
 /**
  * A modal component for resolving data synchronization conflicts for episode reviews.
@@ -37,14 +37,16 @@ export const ConflictResolutionModal: React.FC<ConflictResolutionModalProps> = (
     const { dramaUrl, episodeNumber } = clientPayload; // Assuming these are common properties
 
     const handleKeepMine = () => {
-        onResolve(clientPayload, serverVersion, 'client');
+        onResolve(data, 'client');
         onClose();
     };
 
     const handleKeepServer = () => {
-        onResolve(clientPayload, serverVersion, 'server');
+        onResolve(data, 'server');
         onClose();
     };
+
+    const serverText = serverVersion?.text ?? '(No text saved)';
 
     return ReactDOM.createPortal(
         <div 
@@ -80,7 +82,7 @@ export const ConflictResolutionModal: React.FC<ConflictResolutionModalProps> = (
                     <div>
                         <h3 className="font-semibold text-lg text-brand-text-primary mb-2">Server Version (from other device)</h3>
                         <div className="bg-brand-primary p-4 rounded-lg border border-gray-600">
-                             <p className="text-sm text-brand-text-secondary italic whitespace-pre-wrap">"{serverVersion.text}"</p>
+                             <p className="text-sm text-brand-text-secondary italic whitespace-pre-wrap">"{serverText}"</p>
                         </div>
                     </div>
                 </div>

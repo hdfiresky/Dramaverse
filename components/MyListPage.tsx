@@ -7,9 +7,10 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { Drama, UserData, DramaStatus, UserDramaStatus } from '../types';
 import { DramaCard } from './DramaCard';
 import { EyeIcon, BookmarkIcon, CheckCircleIcon, HeartIcon, PauseIcon, XCircleIcon } from './Icons';
+import { BACKEND_MODE, API_BASE_URL } from '../config';
 
 interface MyListPageProps {
-    /** The complete list of all dramas, used to look up drama details from URLs. */
+    /** The complete list of all dramas, used to look up drama details from URLs. Only used in frontend-only mode. */
     allDramas: Drama[];
     /** The current user's data, containing their lists (favorites, statuses). */
     userData: UserData;
@@ -51,14 +52,14 @@ const FILTERS_ORDER: (DramaStatus | 'Favorites')[] = [
  */
 const getInitialFilter = (userData: UserData): DramaStatus | 'Favorites' => {
     const timestamps = userData.listUpdateTimestamps || {};
-    const keys = Object.keys(timestamps);
+    const keysWithDramas = FILTERS_ORDER.filter(key => {
+        if (key === 'Favorites') return userData.favorites.length > 0;
+        return Object.values(userData.statuses).some(s => s.status === key);
+    });
+    
+    if (keysWithDramas.length === 0) return FILTERS_ORDER[0];
 
-    if (keys.length === 0) {
-        return FILTERS_ORDER[0]; // Default to the first item if no updates have occurred.
-    }
-
-    // Find the key (list name) with the highest timestamp (most recent update).
-    return keys.reduce((a, b) => timestamps[a] > timestamps[b] ? a : b) as DramaStatus | 'Favorites';
+    return keysWithDramas.reduce((a, b) => (timestamps[a] || 0) > (timestamps[b] || 0) ? a : b) as DramaStatus | 'Favorites';
 };
 
 
@@ -72,12 +73,48 @@ const getInitialFilter = (userData: UserData): DramaStatus | 'Favorites' => {
 export const MyListPage: React.FC<MyListPageProps> = ({ allDramas, userData, onSelectDrama, onToggleFavorite, onSetStatus, onSetReviewAndTrackProgress }) => {
     // State to keep track of the currently active filter, initialized with the most recently updated list.
     const [activeFilter, setActiveFilter] = useState<DramaStatus | 'Favorites'>(() => getInitialFilter(userData));
+    const [dramaDetails, setDramaDetails] = useState<Map<string, Drama>>(new Map());
+    const [isLoading, setIsLoading] = useState(BACKEND_MODE);
     
     // Effect to update the active filter if the user data changes (e.g., after an update on another tab).
-    // This ensures the view stays in sync with the latest activity.
     useEffect(() => {
         setActiveFilter(getInitialFilter(userData));
-    }, [userData.listUpdateTimestamps]);
+    }, [userData]);
+
+    // Effect to fetch full drama objects in backend mode.
+    useEffect(() => {
+        const fetchDramaDetails = async () => {
+            if (!BACKEND_MODE) return;
+
+            const statusUrls = Object.keys(userData.statuses);
+            const favoriteUrls = userData.favorites;
+            const allUrls = [...new Set([...statusUrls, ...favoriteUrls])];
+
+            if (allUrls.length === 0) {
+                setIsLoading(false);
+                return;
+            }
+
+            try {
+                const res = await fetch(`${API_BASE_URL}/dramas/by-urls`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', },
+                    credentials: 'include',
+                    body: JSON.stringify({ urls: allUrls })
+                });
+                if (!res.ok) throw new Error("Failed to fetch drama details.");
+                const dramas: Drama[] = await res.json();
+                setDramaDetails(new Map(dramas.map(d => [d.url, d])));
+            } catch (e) {
+                console.error(e);
+            } finally {
+                setIsLoading(false);
+            }
+        };
+
+        fetchDramaDetails();
+    }, [userData]);
+
 
     // Effect to scroll to the top of the page whenever the active filter changes.
     useEffect(() => {
@@ -87,24 +124,21 @@ export const MyListPage: React.FC<MyListPageProps> = ({ allDramas, userData, onS
     // Memoize the categorized and sorted lists of dramas to prevent re-computation on every render.
     const dramasByStatus = useMemo(() => {
         const lists: Record<DramaStatus | 'Favorites', Drama[]> = { [DramaStatus.Watching]: [], [DramaStatus.Completed]: [], [DramaStatus.OnHold]: [], [DramaStatus.Dropped]: [], [DramaStatus.PlanToWatch]: [], Favorites: [] };
-        const dramaMap = new Map(allDramas.map(d => [d.url, d]));
+        const dramaMap = BACKEND_MODE ? dramaDetails : new Map(allDramas.map(d => [d.url, d]));
+        
+        if (dramaMap.size === 0 && BACKEND_MODE && !isLoading) return lists;
 
-        // Temporary structure to hold dramas with their update times, grouped by status
         const tempStatusLists: Partial<Record<DramaStatus, { drama: Drama; updatedAt: number }[]>> = {};
 
-        // Group dramas by status, attaching their update timestamp
         for (const url in userData.statuses) {
             const drama = dramaMap.get(url);
             const statusInfo = userData.statuses[url];
             if (drama && statusInfo?.status) {
-                if (!tempStatusLists[statusInfo.status]) {
-                    tempStatusLists[statusInfo.status] = [];
-                }
+                if (!tempStatusLists[statusInfo.status]) tempStatusLists[statusInfo.status] = [];
                 tempStatusLists[statusInfo.status]!.push({ drama, updatedAt: statusInfo.updatedAt });
             }
         }
         
-        // Sort each status list by timestamp (most recent first)
         for (const status in tempStatusLists) {
             const typedStatus = status as DramaStatus;
             lists[typedStatus] = tempStatusLists[typedStatus]!
@@ -112,16 +146,17 @@ export const MyListPage: React.FC<MyListPageProps> = ({ allDramas, userData, onS
                 .map(item => item.drama);
         }
 
-        // Favorites are already ordered by most recently added (via prepending in useAuth)
-        for (const url of userData.favorites) {
-            const drama = dramaMap.get(url);
-            if (drama) {
-                lists.Favorites.push(drama);
-            }
-        }
+        const favDramasWithTime = userData.favorites
+            .map(url => ({ drama: dramaMap.get(url), ts: userData.listUpdateTimestamps[`Favorites-${url}`] || 0 }))
+            .filter(item => item.drama);
+        
+        // This is a simplified sort for favorites. The backend now provides a timestamp for each favorite add/remove,
+        // but for simplicity here we just reverse the array as `useAuth` prepends new favorites.
+        // A more robust solution would involve storing a timestamp per favorite.
+        lists.Favorites = userData.favorites.map(url => dramaMap.get(url)).filter((d): d is Drama => Boolean(d));
 
         return lists;
-    }, [allDramas, userData.favorites, userData.statuses]);
+    }, [allDramas, userData, dramaDetails, isLoading]);
 
     const activeList = dramasByStatus[activeFilter];
 
@@ -129,14 +164,9 @@ export const MyListPage: React.FC<MyListPageProps> = ({ allDramas, userData, onS
         return FILTERS_ORDER.reduce((sum, key) => sum + dramasByStatus[key].length, 0);
     }, [dramasByStatus]);
     
-    // Memoize the sorted order of filters based on last update time.
     const sortedFilters = useMemo(() => {
         const timestamps = userData.listUpdateTimestamps || {};
-        return [...FILTERS_ORDER].sort((a, b) => {
-            const timeA = timestamps[a] || 0;
-            const timeB = timestamps[b] || 0;
-            return timeB - timeA; // Sort descending by timestamp (most recent first).
-        });
+        return [...FILTERS_ORDER].sort((a, b) => (timestamps[b] || 0) - (timestamps[a] || 0));
     }, [userData.listUpdateTimestamps]);
 
 
@@ -151,7 +181,6 @@ export const MyListPage: React.FC<MyListPageProps> = ({ allDramas, userData, onS
                 </p>
             </div>
 
-            {/* New Dynamic Filter Bar */}
             <div className="mb-6">
                 <div className="flex items-center gap-2 sm:gap-3 overflow-x-auto custom-scrollbar pb-3 -mb-3">
                     {sortedFilters.map(filterKey => {
@@ -159,18 +188,14 @@ export const MyListPage: React.FC<MyListPageProps> = ({ allDramas, userData, onS
                         const count = dramasByStatus[filterKey].length;
                         const isActive = activeFilter === filterKey;
 
-                        if (count === 0 && totalDramasInAllLists > 0) {
-                            return null;
-                        }
+                        if (count === 0 && totalDramasInAllLists > 0) return null;
 
                         return (
                             <button
                                 key={filterKey}
                                 onClick={() => setActiveFilter(filterKey)}
                                 className={`flex-shrink-0 flex items-center gap-2 py-2 px-3 rounded-lg text-sm font-semibold transition-colors duration-200 ${
-                                    isActive
-                                        ? 'bg-brand-accent text-white shadow-md'
-                                        : 'bg-brand-secondary text-brand-text-secondary hover:bg-brand-primary hover:text-brand-text-primary'
+                                    isActive ? 'bg-brand-accent text-white shadow-md' : 'bg-brand-secondary text-brand-text-secondary hover:bg-brand-primary hover:text-brand-text-primary'
                                 }`}
                                 aria-pressed={isActive}
                             >
@@ -187,26 +212,30 @@ export const MyListPage: React.FC<MyListPageProps> = ({ allDramas, userData, onS
                 </div>
             </div>
             
-            {/* Grid to display the dramas for the currently active filter */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-6">
-                {activeList.length > 0 ? (
-                    activeList.map(drama => (
-                         <DramaCard 
-                            key={drama.url} 
-                            drama={drama} 
-                            onSelect={onSelectDrama} 
-                            userData={userData} 
-                            isUserLoggedIn={true}
-                            onToggleFavorite={onToggleFavorite} 
-                            onSetStatus={onSetStatus}
-                            onSetReviewAndTrackProgress={onSetReviewAndTrackProgress}
-                         />
-                    ))
-                ) : (
-                    // Display a message if the current list is empty.
-                    <p className="col-span-full text-center text-brand-text-secondary py-10">No dramas in this list yet.</p>
-                )}
-            </div>
+            {isLoading ? (
+                <div className="flex justify-center items-center h-64">
+                    <div className="w-12 h-12 border-4 border-dashed rounded-full animate-spin border-brand-accent"></div>
+                </div>
+            ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-6">
+                    {activeList.length > 0 ? (
+                        activeList.map(drama => (
+                             <DramaCard 
+                                key={drama.url} 
+                                drama={drama} 
+                                onSelect={onSelectDrama} 
+                                userData={userData} 
+                                isUserLoggedIn={true}
+                                onToggleFavorite={onToggleFavorite} 
+                                onSetStatus={onSetStatus}
+                                onSetReviewAndTrackProgress={onSetReviewAndTrackProgress}
+                             />
+                        ))
+                    ) : (
+                        <p className="col-span-full text-center text-brand-text-secondary py-10">No dramas in this list yet.</p>
+                    )}
+                </div>
+            )}
         </div>
     );
 };

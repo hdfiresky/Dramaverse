@@ -72,6 +72,26 @@ export const fetchAllUsers = async (): Promise<AdminUserView[]> => {
     }
 };
 
+export const fetchDashboardStats = async (): Promise<any> => {
+    if (BACKEND_MODE) {
+        const res = await fetch(`${API_BASE_URL}/admin/stats`, { credentials: 'include' });
+        await handleApiError(res, 'Failed to fetch dashboard stats.');
+        return res.json();
+    } else {
+        // Frontend-only simulation
+        const users = getLocalUsers();
+        // In frontend mode, we can't easily get the drama data here. The component
+        // will handle this calculation itself.
+        return {
+            totalUsers: Object.keys(users).length,
+            totalDramas: 0, // Will be calculated in the component
+            totalReviews: 0, // Will be calculated in the component
+            registrationStats: [] 
+        }
+    }
+}
+
+
 export const fetchAllUserDataForAdmin = async (): Promise<Record<string, UserData>> => {
     if (BACKEND_MODE) {
         // This would require a new, potentially heavy, backend endpoint.

@@ -21,13 +21,10 @@ import { ITEMS_PER_PAGE } from './lib/constants';
  * @returns An object containing the raw drama list, the filtered/sorted list, loading/error states, and filter metadata.
  */
 export const useDramas = (filters: Filters, searchTerm: string, sortPriorities: SortPriority[], currentPage: number, sortMode: 'weighted' | 'random', randomSeed: number) => {
-    // This state holds the full, unprocessed list of dramas. It's fetched once
-    // and used for modals (recommendations, cast lookup) in both modes.
+    // This state holds the full, unprocessed list of dramas for FRONTEND-ONLY mode.
     const [rawDramas, setRawDramas] = useState<Drama[]>([]);
     
     // This state holds the dramas to be displayed in the main grid.
-    // In backend mode, this is the paginated list from the server.
-    // In frontend mode, this is the full filtered/sorted list.
     const [displayDramas, setDisplayDramas] = useState<Drama[]>([]);
 
     const [isLoading, setIsLoading] = useState(true);
@@ -50,18 +47,13 @@ export const useDramas = (filters: Filters, searchTerm: string, sortPriorities: 
                     const metaRes = await fetch(`${API_BASE_URL}/dramas/metadata`);
                     if (!metaRes.ok) throw new Error('Failed to fetch metadata from server.');
                     setMetadata(await metaRes.json());
+                } else {
+                    // In frontend-only mode, fetch the static JSON to power the entire app.
+                    const dramaRes = await fetch('data/dramas.json');
+                    if (!dramaRes.ok) throw new Error(`Failed to fetch drama data file from 'data/dramas.json'.`);
+                    const dramaData: Drama[] = await dramaRes.json();
+                    setRawDramas(dramaData);
                 }
-
-                // In BOTH modes, we fetch the static JSON.
-                // - In frontend mode, it's the primary data source.
-                // - In backend mode, it's a fallback and provides data for client-side modal
-                //   logic. Using a simple relative path is the most robust way to ensure the file
-                //   is found regardless of whether the app is at the root or in a sub-directory.
-                const dramaRes = await fetch('data/dramas.json');
-                if (!dramaRes.ok) throw new Error(`Failed to fetch drama data file from 'data/dramas.json'.`);
-                const dramaData: Drama[] = await dramaRes.json();
-                setRawDramas(dramaData);
-
             } catch (error) {
                 console.error(error);
                 setDataError("Could not load initial drama library. Please try again later.");
@@ -117,7 +109,7 @@ export const useDramas = (filters: Filters, searchTerm: string, sortPriorities: 
         const applyFiltersAndSort = async () => {
             if (BACKEND_MODE) {
                 // In backend mode, delegate all work to the server.
-                if (rawDramas.length === 0) return; // Don't fetch if initial data isn't ready
+                if (!hasInitiallyLoaded) return; // Don't fetch if initial metadata isn't ready
                 
                 setIsLoading(true);
                 try {
@@ -213,7 +205,7 @@ export const useDramas = (filters: Filters, searchTerm: string, sortPriorities: 
         applyFiltersAndSort();
     }, [
         BACKEND_MODE, 
-        rawDramas, // For backend mode, to ensure it runs after initial load
+        hasInitiallyLoaded,
         processedDramas, // For frontend mode
         filters, 
         searchTerm, 
@@ -226,7 +218,7 @@ export const useDramas = (filters: Filters, searchTerm: string, sortPriorities: 
     return {
         displayDramas,
         totalDramas,
-        allDramas: rawDramas, // Provide the full raw list for modals
+        allDramas: rawDramas, // Provide the full raw list for frontend-only mode modals
         metadata,
         isLoading,
         dataError,

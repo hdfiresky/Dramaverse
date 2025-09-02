@@ -18,13 +18,12 @@ import {
     deleteUser,
     resetUserPassword,
     toggleUserAdminStatus,
-    fetchAllUserDataForAdmin,
-    fetchRegistrationStats,
     fetchBackups,
-    rollbackToBackup
+    rollbackToBackup,
+    fetchDashboardStats
 } from '../hooks/lib/adminApi';
 import { DataImportModal } from './DataImportModal';
-import { API_BASE_URL } from '../config';
+import { API_BASE_URL, BACKEND_MODE } from '../config';
 
 
 // --- SUB-COMPONENTS ---
@@ -39,12 +38,50 @@ const statusIconMap: Record<DramaStatus, React.FC<any>> = {
 
 /**
  * A component to display a user's detailed data in a read-only format.
+ * In backend mode, it fetches the required drama details itself.
  */
-const UserDetailView: React.FC<{ userData: UserData; allDramas: Drama[] }> = ({ userData, allDramas }) => {
+const UserDetailView: React.FC<{ userData: UserData; }> = ({ userData }) => {
     const [activeTab, setActiveTab] = useState<'statuses' | 'favorites' | 'reviews'>('statuses');
-    const dramaMap = useMemo(() => new Map(allDramas.map(d => [d.url, d])), [allDramas]);
+    const [dramaDetails, setDramaDetails] = useState<Map<string, Drama>>(new Map());
+    const [isLoading, setIsLoading] = useState(true);
+
+    useEffect(() => {
+        const fetchDetails = async () => {
+            if (!BACKEND_MODE) return;
+            const urls = new Set<string>();
+            userData.favorites.forEach(url => urls.add(url));
+            Object.keys(userData.statuses).forEach(url => urls.add(url));
+            Object.keys(userData.episodeReviews).forEach(url => urls.add(url));
+
+            if (urls.size === 0) {
+                setIsLoading(false);
+                return;
+            }
+            
+            try {
+                const res = await fetch(`${API_BASE_URL}/dramas/by-urls`, {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    credentials: 'include', body: JSON.stringify({ urls: Array.from(urls) })
+                });
+                if (!res.ok) throw new Error("Failed to fetch drama details for user.");
+                const dramas: Drama[] = await res.json();
+                setDramaDetails(new Map(dramas.map(d => [d.url, d])));
+            } catch (e) {
+                console.error(e);
+            } finally {
+                setIsLoading(false);
+            }
+        };
+
+        fetchDetails();
+    }, [userData]);
+
 
     const content = useMemo(() => {
+        if (isLoading && BACKEND_MODE) return <p className="text-sm text-center p-4">Loading drama details...</p>;
+        
+        const dramaMap = dramaDetails;
+
         switch (activeTab) {
             case 'favorites':
                 const favoriteDramas = userData.favorites.map(url => dramaMap.get(url)).filter((d): d is Drama => Boolean(d));
@@ -84,7 +121,6 @@ const UserDetailView: React.FC<{ userData: UserData; allDramas: Drama[] }> = ({ 
 
             case 'statuses':
             default:
-                // FIX: Add explicit type to [url, statusInfo] to resolve spread operator error.
                 const statuses = Object.entries(userData.statuses).map(([url, statusInfo]: [string, UserDramaStatus]) => ({ drama: dramaMap.get(url), ...statusInfo })).filter(item => item.drama && item.status);
                 return statuses.length > 0 ? (
                     <div className="space-y-2">
@@ -103,7 +139,7 @@ const UserDetailView: React.FC<{ userData: UserData; allDramas: Drama[] }> = ({ 
                     </div>
                 ) : <p className="text-sm text-brand-text-secondary">No statuses set.</p>;
         }
-    }, [activeTab, userData, dramaMap]);
+    }, [activeTab, userData, dramaDetails, isLoading]);
 
     return (
         <div className="bg-brand-primary p-4 rounded-b-lg">
@@ -133,13 +169,33 @@ const StatCard: React.FC<{ title: string; value: string | number; icon: React.FC
     </div>
 );
 
-const DashboardStats: React.FC<{ stats: { totalUsers: number; totalDramas: number; totalReviews: number; } }> = ({ stats }) => (
-    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-        <StatCard title="Total Users" value={stats.totalUsers} icon={UserIcon} />
-        <StatCard title="Total Dramas" value={stats.totalDramas} icon={FilmIcon} />
-        <StatCard title="Total Episode Reviews" value={stats.totalReviews} icon={ChatBubbleOvalLeftEllipsisIcon} />
-    </div>
-);
+const DashboardStats: React.FC<{ stats: any | null; isLoading: boolean }> = ({ stats, isLoading }) => {
+    if (isLoading) {
+        return (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+                {[...Array(3)].map((_, i) => (
+                    <div key={i} className="bg-brand-secondary p-4 rounded-lg flex items-center gap-4 shadow-md animate-pulse">
+                        <div className="bg-brand-primary p-3 rounded-full w-14 h-14"></div>
+                        <div className="w-full">
+                            <div className="h-4 bg-brand-primary rounded w-1/2 mb-2"></div>
+                            <div className="h-8 bg-brand-primary rounded w-1/3"></div>
+                        </div>
+                    </div>
+                ))}
+            </div>
+        );
+    }
+
+    if (!stats) return null;
+    
+    return (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+            <StatCard title="Total Users" value={stats.totalUsers} icon={UserIcon} />
+            <StatCard title="Total Dramas" value={stats.totalDramas} icon={FilmIcon} />
+            <StatCard title="Total Episode Reviews" value={stats.totalReviews} icon={ChatBubbleOvalLeftEllipsisIcon} />
+        </div>
+    );
+};
 
 const RegistrationChart: React.FC<{ stats: {date: string; count: number}[] }> = ({ stats }) => {
     const maxCount = Math.max(...stats.map(s => s.count), 1); // Avoid division by zero
@@ -166,41 +222,11 @@ const RegistrationChart: React.FC<{ stats: {date: string; count: number}[] }> = 
     );
 };
 
-const AdvancedStats: React.FC<{ 
-    dramas: Drama[]; 
-    allUserData: Record<string, UserData>;
-    registrationStats: {date: string; count: number}[];
-    isLoading: boolean;
-}> = ({ dramas, allUserData, registrationStats, isLoading }) => {
+const AdvancedStats: React.FC<{ stats: any | null, isLoading: boolean }> = ({ stats, isLoading }) => {
     const [isExpanded, setIsExpanded] = useState(false);
 
-    const stats = useMemo(() => {
-        if (!dramas.length || Object.keys(allUserData).length === 0) {
-            return { topFavorited: [], topWatched: [] };
-        }
-
-        const dramaMap = new Map<string, { drama: Drama, favoriteCount: number, watchCount: number }>();
-        dramas.forEach(d => dramaMap.set(d.url, { drama: d, favoriteCount: 0, watchCount: 0 }));
-
-        // FIX: Add explicit type to `userData` to resolve property access errors.
-        Object.values(allUserData).forEach((userData: UserData) => {
-            userData.favorites.forEach(url => {
-                if (dramaMap.has(url)) dramaMap.get(url)!.favoriteCount++;
-            });
-            // FIX: Add explicit type to [url, statusInfo] to resolve property access errors.
-            Object.entries(userData.statuses).forEach(([url, statusInfo]: [string, UserDramaStatus]) => {
-                if ((statusInfo.status === DramaStatus.Watching || statusInfo.status === DramaStatus.Completed) && dramaMap.has(url)) {
-                    dramaMap.get(url)!.watchCount++;
-                }
-            });
-        });
-
-        const allDramaStats = Array.from(dramaMap.values());
-        const topFavorited = [...allDramaStats].sort((a, b) => b.favoriteCount - a.favoriteCount).slice(0, 5).filter(d => d.favoriteCount > 0);
-        const topWatched = [...allDramaStats].sort((a, b) => b.watchCount - a.watchCount).slice(0, 5).filter(d => d.watchCount > 0);
-        
-        return { topFavorited, topWatched };
-    }, [dramas, allUserData]);
+    // Advanced stats calculations are now done on the backend.
+    // We just need to display them.
 
     return (
         <div className="mt-8">
@@ -211,37 +237,12 @@ const AdvancedStats: React.FC<{
             </button>
             {isExpanded && (
                 <div className="animate-fade-in">
-                    {isLoading ? <p className="text-sm text-brand-text-secondary">Loading statistics...</p> : (
+                    {isLoading ? <p className="text-sm text-brand-text-secondary">Loading statistics...</p> : !stats ? <p className="text-sm text-brand-text-secondary">Could not load stats.</p> : (
                         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                             <div className="lg:col-span-2">
-                                <RegistrationChart stats={registrationStats} />
+                                <RegistrationChart stats={stats.registrationStats} />
                             </div>
-                            <div className="bg-brand-secondary p-4 rounded-lg shadow-md">
-                                <h4 className="font-semibold mb-3">Top 5 Most Favorited Dramas</h4>
-                                {stats.topFavorited.length > 0 ? (
-                                    <ul className="space-y-2">
-                                        {stats.topFavorited.map(({ drama, favoriteCount }) => (
-                                            <li key={drama.url} className="text-sm flex justify-between items-center">
-                                                <span className="truncate pr-4">{drama.title}</span>
-                                                <span className="font-bold flex-shrink-0">{favoriteCount.toLocaleString()}</span>
-                                            </li>
-                                        ))}
-                                    </ul>
-                                ) : <p className="text-sm text-brand-text-secondary">No favorites recorded yet.</p>}
-                            </div>
-                            <div className="bg-brand-secondary p-4 rounded-lg shadow-md">
-                                <h4 className="font-semibold mb-3">Top 5 Most Watched Dramas</h4>
-                                 {stats.topWatched.length > 0 ? (
-                                    <ul className="space-y-2">
-                                        {stats.topWatched.map(({ drama, watchCount }) => (
-                                            <li key={drama.url} className="text-sm flex justify-between items-center">
-                                                <span className="truncate pr-4">{drama.title}</span>
-                                                <span className="font-bold flex-shrink-0">{watchCount.toLocaleString()}</span>
-                                            </li>
-                                        ))}
-                                    </ul>
-                                ) : <p className="text-sm text-brand-text-secondary">No watched dramas recorded yet.</p>}
-                            </div>
+                            {/* The backend can be extended to provide top favorited/watched dramas as well */}
                         </div>
                     )}
                 </div>
@@ -278,7 +279,7 @@ const UserManagementModal: React.FC<UserManagementModalProps> = ({ user, current
                                 <p className="text-xs text-slate-400">Toggle administrator role.</p>
                             </div>
                         </button>
-                         <button onClick={onToggleBan} disabled={currentUser?.username === user.username} className="w-full text-left p-3 hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center gap-3 rounded-md disabled:opacity-50 disabled:cursor-not-allowed">
+                         <button onClick={onToggleBan} disabled={user.isAdmin} className="w-full text-left p-3 hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center gap-3 rounded-md disabled:opacity-50 disabled:cursor-not-allowed">
                             {user.is_banned ? <CheckBadgeIcon className="w-5 h-5 text-green-400" /> : <BanIcon className="w-5 h-5 text-yellow-400" />}
                             <div>
                                 <p className="font-semibold">{user.is_banned ? 'Unban User' : 'Ban User'}</p>
@@ -288,14 +289,14 @@ const UserManagementModal: React.FC<UserManagementModalProps> = ({ user, current
                     </div>
                     <div>
                         <h4 className="text-sm font-semibold text-slate-400 mb-2 mt-4">Sensitive Actions</h4>
-                         <button onClick={onResetPassword} disabled={currentUser?.username === user.username} className="w-full text-left p-3 hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center gap-3 rounded-md disabled:opacity-50 disabled:cursor-not-allowed">
+                         <button onClick={onResetPassword} className="w-full text-left p-3 hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center gap-3 rounded-md">
                             <KeyIcon className="w-5 h-5 text-indigo-400" />
                             <div>
                                 <p className="font-semibold">Reset Password</p>
                                 <p className="text-xs text-slate-400">Generate a new temporary password.</p>
                             </div>
                         </button>
-                        <button onClick={onDeleteUser} disabled={currentUser?.username === user.username} className="w-full text-left p-3 hover:bg-red-100 dark:hover:bg-red-900/50 flex items-center gap-3 rounded-md text-red-600 dark:text-red-400 disabled:opacity-50 disabled:cursor-not-allowed mt-2">
+                        <button onClick={onDeleteUser} disabled={user.isAdmin} className="w-full text-left p-3 hover:bg-red-100 dark:hover:bg-red-900/50 flex items-center gap-3 rounded-md text-red-600 dark:text-red-400 disabled:opacity-50 disabled:cursor-not-allowed mt-2">
                             <TrashIcon className="w-5 h-5" />
                             <div>
                                 <p className="font-semibold">Delete User</p>
@@ -385,37 +386,33 @@ const DataManagement: React.FC<{ onImportComplete: () => void }> = ({ onImportCo
 }
 
 interface AdminPanelProps {
-    allDramas: Drama[];
     currentUser: User | null;
 }
 
 /**
  * Main component for the Admin Panel.
  */
-export const AdminPanel: React.FC<AdminPanelProps> = ({ allDramas, currentUser }) => {
+export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
     const [users, setUsers] = useState<AdminUserView[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [expandedUser, setExpandedUser] = useState<{ id: number, data: UserData } | null>(null);
     const [managingUser, setManagingUser] = useState<AdminUserView | null>(null);
     const [searchTerm, setSearchTerm] = useState('');
-    const [allUserData, setAllUserData] = useState<Record<string, UserData>>({});
-    const [registrationStats, setRegistrationStats] = useState<{date: string, count: number}[]>([]);
+    const [dashboardStats, setDashboardStats] = useState<any | null>(null);
     const [isStatsLoading, setIsStatsLoading] = useState(true);
-
+    
     const fetchAdminData = useCallback(async () => {
         setIsLoading(true);
         setIsStatsLoading(true);
         try {
             const usersData = await fetchAllUsers();
             setUsers(usersData);
-            
-            const [userData, regStats] = await Promise.all([
-                fetchAllUserDataForAdmin(),
-                fetchRegistrationStats()
-            ]);
-            setAllUserData(userData);
-            setRegistrationStats(regStats);
+
+            if (BACKEND_MODE) {
+                const stats = await fetchDashboardStats();
+                setDashboardStats(stats);
+            }
             
             setError(null);
         } catch (err) {
@@ -457,17 +454,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ allDramas, currentUser }
         return users.filter(user => user.username.toLowerCase().includes(searchTerm.toLowerCase()));
     }, [users, searchTerm]);
     
-    const dashboardStats = useMemo(() => {
-        // FIX: Add explicit type to `data` to resolve property access errors on `episodeReviews`.
-        const totalReviews = Object.values(allUserData).reduce((acc, data: UserData) => {
-            return acc + Object.keys(data.episodeReviews).reduce((reviewAcc, url) => {
-                return reviewAcc + Object.keys(data.episodeReviews[url]).length;
-            }, 0);
-        }, 0);
-        return { totalUsers: users.length, totalDramas: allDramas.length, totalReviews };
-    }, [users, allDramas, allUserData]);
-
-
     if (error) return <div className="text-center p-8 text-red-400">{error}</div>;
 
     return (
@@ -475,7 +461,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ allDramas, currentUser }
             <h2 className="text-3xl font-bold text-brand-text-primary mb-2">Admin Panel</h2>
             <p className="text-brand-text-secondary mb-6">Site management, user overview, and statistics.</p>
             
-            <DashboardStats stats={dashboardStats} />
+            <DashboardStats stats={dashboardStats} isLoading={isStatsLoading} />
             
             <div className="bg-brand-secondary shadow-lg rounded-lg">
                 <div className="p-4 border-b border-slate-700">
@@ -528,7 +514,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ allDramas, currentUser }
                                     </div>
                                 </div>
                                 {expandedUser?.id === user.id && (
-                                    <UserDetailView userData={expandedUser.data} allDramas={allDramas} />
+                                    <UserDetailView userData={expandedUser.data} />
                                 )}
                             </div>
                         ))}
@@ -538,7 +524,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ allDramas, currentUser }
 
              <DataManagement onImportComplete={fetchAdminData} />
 
-            <AdvancedStats dramas={allDramas} allUserData={allUserData} registrationStats={registrationStats} isLoading={isStatsLoading} />
+            <AdvancedStats stats={dashboardStats} isLoading={isStatsLoading} />
 
             {managingUser && (
                 <UserManagementModal 

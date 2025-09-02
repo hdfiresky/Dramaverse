@@ -2,12 +2,14 @@
  * @fileoverview Defines the AllReviewsPage component, which displays a sortable,
  * comprehensive list of all episode reviews written by the user.
  */
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Drama, UserData, EpisodeReview } from '../types';
 import { ChevronRightIcon } from './Icons';
+import { BACKEND_MODE, API_BASE_URL } from '../config';
+
 
 interface AllReviewsPageProps {
-    /** The complete list of all dramas. */
+    /** The complete list of all dramas. Used only in frontend-only mode. */
     allDramas: Drama[];
     /** The current user's data containing their reviews. */
     userData: UserData;
@@ -120,9 +122,43 @@ const ReviewedDramaCard: React.FC<{
 export const AllReviewsPage: React.FC<AllReviewsPageProps> = ({ allDramas, userData, onSelectDrama }) => {
     type SortByType = 'latest' | 'mostReviews' | 'alpha';
     const [sortBy, setSortBy] = useState<SortByType>('latest');
+    const [dramaDetails, setDramaDetails] = useState<Map<string, Drama>>(new Map());
+    const [isLoading, setIsLoading] = useState(BACKEND_MODE);
+
+    useEffect(() => {
+        const fetchDramaDetails = async () => {
+            if (!BACKEND_MODE) return;
+            
+            const reviewUrls = Object.keys(userData.episodeReviews);
+            if (reviewUrls.length === 0) {
+                setIsLoading(false);
+                return;
+            }
+
+            try {
+                const res = await fetch(`${API_BASE_URL}/dramas/by-urls`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', },
+                    credentials: 'include',
+                    body: JSON.stringify({ urls: reviewUrls })
+                });
+                if (!res.ok) throw new Error("Failed to fetch drama details.");
+                const dramas: Drama[] = await res.json();
+                setDramaDetails(new Map(dramas.map(d => [d.url, d])));
+            } catch (e) {
+                console.error(e);
+            } finally {
+                setIsLoading(false);
+            }
+        };
+        fetchDramaDetails();
+    }, [userData.episodeReviews]);
+
 
     const reviewedDramas = useMemo<ReviewedDrama[]>(() => {
-        const dramaMap = new Map(allDramas.map(d => [d.url, d]));
+        const dramaMap = BACKEND_MODE ? dramaDetails : new Map(allDramas.map(d => [d.url, d]));
+        if (dramaMap.size === 0 && BACKEND_MODE && !isLoading) return [];
+        
         const result: ReviewedDrama[] = [];
 
         for (const dramaUrl in userData.episodeReviews) {
@@ -130,11 +166,10 @@ export const AllReviewsPage: React.FC<AllReviewsPageProps> = ({ allDramas, userD
             const reviewsData = userData.episodeReviews[dramaUrl];
 
             if (drama && reviewsData) {
-                // FIX: Explicitly type the [epNum, review] tuple to resolve 'unknown' type error on 'review'.
-                const reviews = Object.entries(reviewsData).map(([epNum, review]: [string, EpisodeReview]) => ({
+                const reviews = Object.entries(reviewsData).map(([epNum, review]) => ({
                     episodeNumber: parseInt(epNum, 10),
-                    text: review.text,
-                    updatedAt: review.updatedAt,
+                    text: (review as EpisodeReview).text,
+                    updatedAt: (review as EpisodeReview).updatedAt,
                 }));
 
                 if (reviews.length > 0) {
@@ -149,7 +184,7 @@ export const AllReviewsPage: React.FC<AllReviewsPageProps> = ({ allDramas, userD
             }
         }
         return result;
-    }, [allDramas, userData]);
+    }, [allDramas, userData, dramaDetails, isLoading]);
     
     const totalReviewsCount = useMemo(() => {
         return reviewedDramas.reduce((acc, drama) => acc + drama.reviewCount, 0);
@@ -199,7 +234,11 @@ export const AllReviewsPage: React.FC<AllReviewsPageProps> = ({ allDramas, userD
                 )}
             </div>
 
-            {sortedDramas.length > 0 ? (
+            {isLoading ? (
+                 <div className="flex justify-center items-center h-64">
+                    <div className="w-12 h-12 border-4 border-dashed rounded-full animate-spin border-brand-accent"></div>
+                </div>
+            ) : sortedDramas.length > 0 ? (
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                     {sortedDramas.map(rd => (
                         <ReviewedDramaCard 

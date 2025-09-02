@@ -145,14 +145,20 @@ export const useAuth = (onLoginSuccess?: () => void, openConflictModal?: (data: 
         if (!socket) return;
         
         // Listener for favorite updates
-        const handleFavoriteUpdate = ({ dramaUrl, isFavorite }: { dramaUrl: string, isFavorite: boolean }) => {
-            if (ENABLE_DEBUG_LOGGING) console.log('%c[Socket.IO] Received event: favorite_updated', 'color: #9c27b0;', { dramaUrl, isFavorite });
+        const handleFavoriteUpdate = ({ dramaUrl, isFavorite, updatedAt }: { dramaUrl: string, isFavorite: boolean, updatedAt: number }) => {
+            if (ENABLE_DEBUG_LOGGING) console.log('%c[Socket.IO] Received event: favorite_updated', 'color: #9c27b0;', { dramaUrl, isFavorite, updatedAt });
             setUserData(currentData => {
                 const newFavorites = isFavorite
-                    ? [...currentData.favorites, dramaUrl]
+                    ? [dramaUrl, ...currentData.favorites]
                     : currentData.favorites.filter(url => url !== dramaUrl);
-                // Ensure no duplicates
-                return { ...currentData, favorites: [...new Set(newFavorites)] };
+                
+                const newListUpdateTimestamps = {
+                    ...currentData.listUpdateTimestamps,
+                    'Favorites': Math.max(currentData.listUpdateTimestamps['Favorites'] || 0, updatedAt),
+                };
+
+                // Ensure no duplicates and maintain order from server if needed (though local add is faster)
+                return { ...currentData, favorites: [...new Set(newFavorites)], listUpdateTimestamps: newListUpdateTimestamps };
             });
         };
 
@@ -161,12 +167,21 @@ export const useAuth = (onLoginSuccess?: () => void, openConflictModal?: (data: 
             if (ENABLE_DEBUG_LOGGING) console.log('%c[Socket.IO] Received event: status_updated', 'color: #9c27b0;', { dramaUrl, statusInfo });
             setUserData(currentData => {
                 const newStatuses = { ...currentData.statuses };
+                const newListUpdateTimestamps = { ...currentData.listUpdateTimestamps };
+                
+                const oldStatus = currentData.statuses[dramaUrl]?.status;
+
                 if (!statusInfo || !statusInfo.status) {
                     delete newStatuses[dramaUrl];
+                    if (oldStatus) newListUpdateTimestamps[oldStatus] = statusInfo?.updatedAt || Date.now();
                 } else {
                     newStatuses[dramaUrl] = statusInfo;
+                    newListUpdateTimestamps[statusInfo.status] = Math.max(newListUpdateTimestamps[statusInfo.status] || 0, statusInfo.updatedAt);
+                    if (oldStatus && oldStatus !== statusInfo.status) {
+                        newListUpdateTimestamps[oldStatus] = Math.max(newListUpdateTimestamps[oldStatus] || 0, statusInfo.updatedAt);
+                    }
                 }
-                return { ...currentData, statuses: newStatuses };
+                return { ...currentData, statuses: newStatuses, listUpdateTimestamps: newListUpdateTimestamps };
             });
         };
 
@@ -360,9 +375,15 @@ export const useAuth = (onLoginSuccess?: () => void, openConflictModal?: (data: 
                 const newUserData = JSON.parse(JSON.stringify(currentData));
                 const { episodeReviews } = newUserData;
                 const { dramaUrl, episodeNumber } = conflictData.clientPayload;
-                const { text, updatedAt } = conflictData.serverVersion;
+                const serverVersion = conflictData.serverVersion;
                 if (!episodeReviews[dramaUrl]) episodeReviews[dramaUrl] = {};
-                episodeReviews[dramaUrl][episodeNumber] = { text, updatedAt };
+                
+                if (serverVersion === null) {
+                     delete episodeReviews[dramaUrl][episodeNumber];
+                } else {
+                    episodeReviews[dramaUrl][episodeNumber] = serverVersion;
+                }
+
                 return newUserData;
             });
         }
@@ -394,7 +415,7 @@ export const useAuth = (onLoginSuccess?: () => void, openConflictModal?: (data: 
 
         return authenticatedUpdate(
             '/user/statuses',
-            { dramaUrl, status: statusInfo.status, currentEpisode: statusInfo.currentEpisode },
+            statusWithTimestamp,
             (currentData) => {
                 const newStatuses = { ...currentData.statuses };
                 const newListUpdateTimestamps = { ...currentData.listUpdateTimestamps };

@@ -12,6 +12,8 @@ import { useAuth } from './hooks/useAuth';
 import { useDramas } from './hooks/useDramas';
 import { useDebounce } from './hooks/useDebounce';
 import { LOCAL_STORAGE_KEYS, ITEMS_PER_PAGE } from './hooks/lib/constants';
+import { BACKEND_MODE } from './config';
+
 
 // Component Imports
 import { Header } from './components/Header';
@@ -75,7 +77,7 @@ export default function App() {
     const { 
         displayDramas, 
         totalDramas, 
-        allDramas, 
+        allDramas, // This will be empty in backend mode, used for frontend-only mode
         metadata, 
         isLoading, 
         dataError,
@@ -187,7 +189,7 @@ export default function App() {
             case 'my-list':
                 return (
                     <MyListPage 
-                        allDramas={allDramas} 
+                        allDramas={allDramas} // Kept for frontend-only mode compatibility
                         userData={userData} 
                         onSelectDrama={handleSelectDrama} 
                         onToggleFavorite={handleToggleFavorite}
@@ -198,7 +200,7 @@ export default function App() {
             case 'all-reviews':
                 return (
                     <AllReviewsPage
-                        allDramas={allDramas}
+                        allDramas={allDramas} // Kept for frontend-only mode compatibility
                         userData={userData}
                         onSelectDrama={handleSelectDrama}
                     />
@@ -219,7 +221,7 @@ export default function App() {
                  return null;
             case 'admin':
                  if (currentUser?.isAdmin) {
-                    return <AdminPanel allDramas={allDramas} currentUser={currentUser} />;
+                    return <AdminPanel currentUser={currentUser} />;
                 }
                 navigateTo('home');
                 return null;
@@ -287,7 +289,6 @@ export default function App() {
             {activeModal?.type === 'drama' && (
                 <DramaDetailModal 
                     drama={activeModal.drama}
-                    allDramas={allDramas} 
                     onCloseAll={closeAllModals}
                     onPopModal={popModal}
                     onSelectDrama={handleSelectDrama}
@@ -300,7 +301,6 @@ export default function App() {
             {activeModal?.type === 'cast' && (
                 <CastDetailModal 
                     actorName={activeModal.actorName} 
-                    allDramas={allDramas} 
                     onCloseAll={closeAllModals}
                     onPopModal={popModal}
                     onSelectDrama={handleSelectDrama} 
