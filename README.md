@@ -27,7 +27,7 @@ Dramaverse is packed with features designed to provide a seamless and powerful d
 
 ### 🧠 Intelligent Recommendations
 -   **Curated Recommendations**: Displays pre-defined recommendations from the data source.
--   **Powerful Similarity Engine**: A client-side engine that finds similar dramas based on user-selected criteria.
+-   **Powerful Similarity Engine**: A powerful recommendation engine that allows users to find similar dramas based on user-selected criteria.
     -   **Configurable Criteria**: Mix and match attributes like _Genres_, _Tags_, _Description_, _Cast_, and _Rating_ to find the perfect match.
     -   **Weighted Scoring**: The engine calculates a similarity score to rank the most relevant results.
 
@@ -55,7 +55,7 @@ Instead of a monolithic state management library, the application's logic is enc
 
 -   `useDramas`: The core data hook. It fetches the drama library, manages metadata, and performs all complex client-side filtering and weighted sorting. It is heavily memoized for performance.
 -   `useAuth`: Handles all authentication and user data logic, including registration, login, favorites, and drama statuses. It persists data to `localStorage`.
--   `useUIState`: Manages the state of the UI itself, including the active view, modal visibility, pagination, and theme.
+-   `useRouter`: The core of navigation and state management. It treats the browser URL as the single source of truth, deriving the active view, filters, and modal state from the path and query parameters. It provides functions to programmatically navigate and update the URL.
 -   `useLocalStorage`: A generic utility hook for easily persisting state to `localStorage`.
 -   `useDebounce`: A performance hook used to debounce user input for the search field.
 

@@ -4,7 +4,6 @@
  */
 import React from 'react';
 import { HomeIcon, ListBulletIcon, ChatBubbleOvalLeftEllipsisIcon, ShieldCheckIcon, SparklesIcon } from './Icons';
-// FIX: The ActiveView type is exported from useRouter.ts, not the non-existent useUIState.ts.
 import { ActiveView } from '../hooks/useRouter';
 import { User } from '../types';
 

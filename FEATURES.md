@@ -29,7 +29,7 @@ This document outlines the key features implemented in the Dramaverse applicatio
 
 ## 5. Recommendation Engines
 - **Curated Recommendations**: Displays the pre-defined list of recommendations from the original data source.
-- **Similarity Engine**: A powerful, client-side recommendation engine that allows users to find similar dramas based on a combination of criteria they select.
+- **Similarity Engine**: A powerful recommendation engine that allows users to find similar dramas based on a combination of criteria they select.
     - **Configurable Criteria**: Users can toggle criteria like Genres, Tags, Description, Cast, Rating, and Rating Count.
     - **Similarity Scoring**: The engine calculates a similarity score for every other drama in the library based on the selected criteria and their assigned weights.
     - **Dynamic Results**: The top 10 most similar dramas are displayed instantly.
