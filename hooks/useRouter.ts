@@ -8,7 +8,7 @@ import { useLocalStorage } from './useLocalStorage';
 import { ModalStackItem } from '../types';
 import { BASE_PATH } from '../config';
 
-export type ActiveView = 'home' | 'my-list' | 'all-reviews' | 'admin' | 'recommendations';
+export type ActiveView = 'home' | 'my-list' | 'all-reviews' | 'admin' | 'recommendations' | 'privacy' | 'terms';
 
 // Helper to safely encode and decode the modal stack for the URL.
 const encodeModalStack = (stack: ModalStackItem[]): string => {
@@ -57,7 +57,7 @@ export const useRouter = () => {
     const activeView = useMemo<ActiveView>(() => {
         const path = location.pathname.replace(BASE_PATH, '').replace(/\/$/, '');
         const view = path.split('/')[0] as ActiveView;
-        const validViews: ActiveView[] = ['home', 'my-list', 'all-reviews', 'admin', 'recommendations'];
+        const validViews: ActiveView[] = ['home', 'my-list', 'all-reviews', 'admin', 'recommendations', 'privacy', 'terms'];
         if (validViews.includes(view)) return view;
         return 'home'; // Default to home
     }, [location.pathname]);
@@ -86,13 +86,21 @@ export const useRouter = () => {
         // Construct the full path including the base path
         const fullPath = (BASE_PATH + path).replace('//', '/');
         if (window.location.pathname !== fullPath) {
-            window.history.pushState({}, '', fullPath);
+            // Preserve modal stack on main navigation, but clear other transient params like filters.
+            const modalStackParam = location.query.get('modal_stack');
+            const newQuery = new URLSearchParams();
+            if (modalStackParam) {
+                newQuery.set('modal_stack', modalStackParam);
+            }
+            const searchString = newQuery.toString() ? `?${newQuery.toString()}` : '';
+
+            window.history.pushState({}, '', `${fullPath}${searchString}`);
             setLocation({
                 pathname: fullPath,
-                query: new URLSearchParams(), // Reset query params on main navigation
+                query: newQuery,
             });
         }
-    }, []);
+    }, [location.query]);
 
     /**
      * Updates one or more query parameters in the URL.

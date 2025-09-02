@@ -4,6 +4,7 @@
  */
 import React, { useState, useEffect } from 'react';
 import ReactDOM from 'react-dom';
+import { BASE_PATH } from '../config';
 
 interface AuthModalProps {
     /** A boolean to control the visibility of the modal. */
@@ -113,6 +114,18 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onLogin, 
                         {isLogin ? "Register" : "Login"}
                     </button>
                 </p>
+                {!isLogin && (
+                    <p className="text-center text-xs text-brand-text-secondary mt-4">
+                        By registering, you agree to our{' '}
+                        <a href={`${BASE_PATH}terms`} target="_blank" rel="noopener noreferrer" className="underline hover:text-brand-accent">
+                            Terms of Service
+                        </a>{' '}
+                        and{' '}
+                        <a href={`${BASE_PATH}privacy`} target="_blank" rel="noopener noreferrer" className="underline hover:text-brand-accent">
+                            Privacy Policy
+                        </a>.
+                    </p>
+                )}
             </div>
         </div>,
         document.getElementById('modal-root')!

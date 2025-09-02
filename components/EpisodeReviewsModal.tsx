@@ -1,11 +1,7 @@
 /**
  * @fileoverview Defines a modal for writing and viewing reviews for each episode of a drama.
  */
-import React,
-{
-    useState
-}
-from 'react';
+import React from 'react';
 import ReactDOM from 'react-dom';
 import {
     Drama,
@@ -39,7 +35,7 @@ interface EpisodeReviewsModalProps {
  * @param {EpisodeReviewsModalProps} props - The props for the component.
  * @returns {React.ReactElement} The rendered modal, attached to the modal root.
  */
-export const EpisodeReviewsModal: React.FC < EpisodeReviewsModalProps > = ({
+export const EpisodeReviewsModal: React.FC<EpisodeReviewsModalProps> = ({
     drama,
     userData,
     onCloseAll,

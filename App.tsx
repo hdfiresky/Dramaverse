@@ -1,4 +1,5 @@
 
+
 /**
  * @fileoverview The main application component, acting as the root container.
  * It orchestrates the entire application by composing custom hooks for state management
@@ -30,6 +31,100 @@ import { ConflictResolutionModal } from './components/ConflictResolutionModal';
 import { RecommendationsPage } from './components/RecommendationsPage';
 import { ChangePasswordModal } from './components/ChangePasswordModal';
 import { EpisodeReviewsModal } from './components/EpisodeReviewsModal';
+import { Footer } from './components/Footer';
+import { LegalPage } from './components/LegalPage';
+
+
+// --- LEGAL PAGE CONTENT ---
+
+const PrivacyPolicyContent = () => (
+    <>
+        <p className="italic"><strong>Disclaimer:</strong> This is a template Privacy Policy and not legal advice. Please consult with a legal professional to ensure it meets your specific needs.</p>
+        <p><strong>Last Updated:</strong> October 26, 2023</p>
+        <p>Dramaverse ("we," "us," or "our") is committed to protecting your privacy. This Privacy Policy explains how we collect, use, and safeguard your information when you use our application.</p>
+        
+        <h2>1. Information We Collect</h2>
+        <ul>
+            <li><strong>Account Information:</strong> When you register, we collect a username and password. In our backend-enabled mode, your password is encrypted (hashed) and never stored in plain text.</li>
+            <li><strong>User-Generated Content:</strong> We store data you voluntarily provide, such as your list of favorite dramas, drama statuses (e.g., "Watching," "Completed"), progress tracking, and any episode reviews you write.</li>
+            <li><strong>Usage Data:</strong> We do not collect any personal analytics or tracking information about your browsing habits.</li>
+        </ul>
+
+        <h2>2. How We Use Your Information</h2>
+        <p>We use the information we collect solely to:</p>
+        <ul>
+            <li>Provide, operate, and maintain the Dramaverse service.</li>
+            <li>Personalize your experience by managing your watchlists and reviews.</li>
+            <li>Power recommendation features based on your viewing history within the app.</li>
+        </ul>
+
+        <h2>3. Data Storage and Security</h2>
+        <ul>
+            <li><strong>Frontend-Only Mode:</strong> If you use the app without our backend, all your account information and user data are stored locally on your device using your browser's `localStorage`. This data does not leave your computer.</li>
+            <li><strong>Backend Mode:</strong> When connected to our backend, your data is stored securely in our database. We take reasonable measures to protect your information from unauthorized access.</li>
+            <li><strong>Cookies:</strong> In backend mode, we use a secure `HttpOnly` cookie to manage your login session. This cookie is essential for the app to function and does not contain any personal information or tracking capabilities.</li>
+        </ul>
+
+        <h2>4. Data Sharing</h2>
+        <p>We do not sell, trade, or otherwise transfer your personally identifiable information to outside parties. Your data is used exclusively for the functionality of the Dramaverse application.</p>
+
+        <h2>5. Your Data Rights</h2>
+        <p>You have the right to access and delete your personal data. You may request account deletion by contacting us. An administrator can permanently remove your account and all associated data.</p>
+        
+        <h2>6. Changes to This Policy</h2>
+        <p>We may update this Privacy Policy from time to time. We will notify you of any changes by posting the new policy on this page.</p>
+
+        <h2>7. Contact Us</h2>
+        <p>If you have any questions about this Privacy Policy, please contact us at: privacy@dramaverse.example</p>
+    </>
+);
+
+const TermsOfServiceContent = () => (
+    <>
+        <p className="italic"><strong>Disclaimer:</strong> These are template Terms of Service and not legal advice. Please consult with a legal professional to ensure they meet your specific needs.</p>
+        <p><strong>Last Updated:</strong> October 26, 2023</p>
+        <p>Welcome to Dramaverse! By using our application, you agree to these Terms of Service ("Terms").</p>
+
+        <h2>1. Acceptance of Terms</h2>
+        <p>By creating an account or using our services, you agree to be bound by these Terms. If you do not agree, please do not use the application.</p>
+
+        <h2>2. User Accounts</h2>
+        <ul>
+            <li>You are responsible for maintaining the confidentiality of your account and password.</li>
+            <li>You must be at least 13 years old to create an account.</li>
+        </ul>
+
+        <h2>3. User-Generated Content</h2>
+        <p>You are solely responsible for the content you post, such as episode reviews. By posting content, you grant us a non-exclusive, worldwide, royalty-free license to display it within the application. You agree not to post content that is unlawful, offensive, or infringing on others' rights. We reserve the right to remove any content at our discretion.</p>
+
+        <h2>4. Drama Information Disclaimer (Important)</h2>
+        <p>Dramaverse is a fan-made, non-commercial application for personal entertainment and discovery purposes.</p>
+        <ul>
+            <li><strong>Data Source:</strong> The drama information displayed in this application, including titles, synopses, images, and cast details, is aggregated from publicly available sources on the internet, such as <a href="https://mydramalist.com" target="_blank" rel="noopener noreferrer">MyDramaList.com</a>.</li>
+            <li><strong>No Ownership Claimed:</strong> We do not claim ownership of this data. All copyrights and trademarks for the drama-related content belong to their respective owners.</li>
+            <li><strong>No Guarantee of Accuracy:</strong> While we strive for accuracy, the information is provided "as is" without any warranties.</li>
+            <li><strong>Fair Use:</strong> This application is intended to function as a highly-interactive discovery tool, and its use of this data is believed to fall under the principles of fair use. If you are a content owner and believe your work is being used improperly, please contact us at: legal@dramaverse.example.</li>
+        </ul>
+
+        <h2>5. Prohibited Conduct</h2>
+        <p>You agree not to use the service for any illegal or unauthorized purpose. We reserve the right to terminate accounts that violate our community standards.</p>
+
+        <h2>6. Disclaimer of Warranties</h2>
+        <p>The service is provided "as is" and "as available" without any warranties of any kind. We do not guarantee that the service will be uninterrupted or error-free.</p>
+
+        <h2>7. Limitation of Liability</h2>
+        <p>To the fullest extent permitted by law, Dramaverse shall not be liable for any indirect, incidental, or consequential damages arising out of your use of the service.</p>
+
+        <h2>8. Termination</h2>
+        <p>We may terminate or suspend your account at any time, without prior notice or liability, for any reason, including if you breach these Terms.</p>
+
+        <h2>9. Changes to Terms</h2>
+        <p>We reserve the right to modify these Terms at any time. We will notify you of any changes by posting the new Terms on this page.</p>
+
+        <h2>10. Contact Us</h2>
+        <p>If you have any questions about these Terms, please contact us at: legal@dramaverse.example</p>
+    </>
+);
 
 
 export default function App() {
@@ -48,13 +143,14 @@ export default function App() {
     
     // --- ROUTE PROTECTION ---
     useEffect(() => {
-        const protectedViews: ActiveView[] = ['my-list', 'all-reviews', 'recommendations'];
-        const adminViews: ActiveView[] = ['admin'];
+        const publicViews: ActiveView[] = ['home', 'privacy', 'terms'];
+        const currentViewIsPublic = publicViews.includes(activeView);
+        const currentViewIsAdmin = activeView === 'admin';
 
-        if (!currentUser && protectedViews.includes(activeView)) {
+        if (!currentUser && !currentViewIsPublic) {
             navigate('/home');
         }
-        if (!currentUser?.isAdmin && adminViews.includes(activeView)) {
+        if (currentViewIsAdmin && !currentUser?.isAdmin) {
             navigate('/home');
         }
     }, [activeView, currentUser, navigate]);
@@ -228,7 +324,6 @@ export default function App() {
     const activeModalData = modalStack.length > 0 ? modalStack[modalStack.length - 1] : null;
 
     const renderActiveView = () => {
-        // Double-check permissions before rendering as a fallback
         switch (activeView) {
             case 'home':
                 return <HomePage dramas={displayDramas} isLoading={isLoading} dataError={dataError} totalDramas={totalDramas} userData={userData} filters={filters} searchTerm={searchTerm} currentPage={currentPage} itemsPerPage={itemsPerPage} isUserLoggedIn={!!currentUser} hasInitiallyLoaded={hasInitiallyLoaded} onSelectDrama={handleSelectDrama} onToggleFavorite={handleToggleFavorite} onSetStatus={handleSetStatus} onSearchChange={setSearchTerm} onPageChange={(p) => updateQuery({ page: String(p) })} onOpenFilters={() => setFilterSidebarOpen(true)} onFiltersChange={handleFiltersChange} onSetReviewAndTrackProgress={handleSetReviewAndTrackProgress} />;
@@ -244,6 +339,10 @@ export default function App() {
             case 'admin':
                 if (currentUser?.isAdmin) return <AdminPanel currentUser={currentUser} />;
                 return null;
+            case 'privacy':
+                return <LegalPage title="Privacy Policy"><PrivacyPolicyContent /></LegalPage>;
+            case 'terms':
+                return <LegalPage title="Terms of Service"><TermsOfServiceContent /></LegalPage>;
             default:
                 return null;
         }
@@ -254,10 +353,11 @@ export default function App() {
     }
 
     return (
-        <div className="min-h-screen font-sans">
+        <div className="min-h-screen font-sans flex flex-col">
             <Header onGoHome={() => handleNavigate('home')} onGoToMyList={() => handleNavigate('my-list')} onGoToRecommendations={() => handleNavigate('recommendations')} onGoToAllReviews={() => handleNavigate('all-reviews')} onGoToAdminPanel={() => handleNavigate('admin')} currentUser={currentUser} onLoginClick={() => setAuthModalOpen(true)} onLogout={handleLogout} onOpenChangePassword={() => setChangePasswordModalOpen(true)} theme={theme} toggleTheme={toggleTheme} />
             <FilterSidebar isOpen={isFilterSidebarOpen} onClose={() => setFilterSidebarOpen(false)} metadata={metadata} filters={filters} onFiltersChange={handleFiltersChange} sortPriorities={sortPriorities} onSortPrioritiesChange={handleSortPrioritiesChange} sortMode={sortMode} onSetSortMode={handleSetSortMode} onSetRandomSeed={setRandomSeed} />
-            <main className={`min-w-0 py-8 px-4 sm:px-6 lg:px-8 ${currentUser ? 'pb-24 md:pb-8' : 'pb-8'}`}>{renderActiveView()}</main>
+            <main className={`flex-grow min-w-0 py-8 px-4 sm:px-6 lg:px-8 ${currentUser ? 'pb-24 md:pb-8' : 'pb-8'}`}>{renderActiveView()}</main>
+            <Footer onNavigate={handleNavigate} />
             <AuthModal isOpen={isAuthModalOpen} onClose={() => setAuthModalOpen(false)} onLogin={login} onRegister={register} />
             <ChangePasswordModal isOpen={isChangePasswordModalOpen} onClose={() => setChangePasswordModalOpen(false)} onChangePassword={changePassword} />
             <ConflictResolutionModal isOpen={!!conflictData} data={conflictData} onClose={() => setConflictData(null)} onResolve={resolveConflict} />
