@@ -2,7 +2,6 @@ import React from 'react';
 
 export const TermsOfServiceContent = () => (
     <>
-        <p className="italic"><strong>Disclaimer:</strong> These are template Terms of Service and not legal advice. Please consult with a legal professional to ensure they meet your specific needs.</p>
         <p><strong>Last Updated:</strong> October 26, 2023</p>
         <p>Welcome to Dramaverse! By using our application, you agree to these Terms of Service ("Terms").</p>
 

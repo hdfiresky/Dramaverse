@@ -2,7 +2,6 @@ import React from 'react';
 
 export const PrivacyPolicyContent = () => (
     <>
-        <p className="italic"><strong>Disclaimer:</strong> This is a template Privacy Policy and not legal advice. Please consult with a legal professional to ensure it meets your specific needs.</p>
         <p><strong>Last Updated:</strong> October 26, 2023</p>
         <p>Dramaverse ("we," "us," or "our") is committed to protecting your privacy. This Privacy Policy explains how we collect, use, and safeguard your information when you use our application.</p>
         
