@@ -80,14 +80,20 @@ export const useRouter = () => {
 
     /**
      * Programmatically navigates to a new path, replacing the history state.
+     * This function is stable and will not change across re-renders.
      * @param {string} path - The new path to navigate to (e.g., '/home', '/my-list').
      */
     const navigate = useCallback((path: string) => {
-        // Construct the full path including the base path
         const fullPath = (BASE_PATH + path).replace('//', '/');
-        if (window.location.pathname !== fullPath) {
-            // Preserve modal stack on main navigation, but clear other transient params like filters.
-            const modalStackParam = location.query.get('modal_stack');
+        
+        setLocation(currentLocation => {
+            // Check against the most recent state to prevent unnecessary history entries.
+            if (currentLocation.pathname === fullPath) {
+                return currentLocation;
+            }
+
+            // Preserve modal stack on main navigation, but clear other transient params.
+            const modalStackParam = currentLocation.query.get('modal_stack');
             const newQuery = new URLSearchParams();
             if (modalStackParam) {
                 newQuery.set('modal_stack', modalStackParam);
@@ -95,12 +101,12 @@ export const useRouter = () => {
             const searchString = newQuery.toString() ? `?${newQuery.toString()}` : '';
 
             window.history.pushState({}, '', `${fullPath}${searchString}`);
-            setLocation({
+            return {
                 pathname: fullPath,
                 query: newQuery,
-            });
-        }
-    }, [location.pathname, location.query]);
+            };
+        });
+    }, []);
 
     /**
      * Updates one or more query parameters in the URL.

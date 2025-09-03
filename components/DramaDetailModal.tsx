@@ -292,6 +292,12 @@ export const DramaDetailModal: React.FC<DramaDetailModalProps> = ({ drama, onClo
         </div>
     )) : [], [drama, onSelectActor]);
 
+    // Filter out malformed recommendation items to prevent crashes.
+    const validSimilarityRecommendations = useMemo(() => 
+        recommendations.filter(item => item && item.drama), 
+        [recommendations]
+    );
+
     // If drama data hasn't been loaded yet (e.g., on a hard refresh), don't render anything yet.
     if (!drama) {
         return ReactDOM.createPortal(
@@ -425,9 +431,9 @@ export const DramaDetailModal: React.FC<DramaDetailModalProps> = ({ drama, onClo
                                                 ))}
                                             </div>
                                         </div>
-                                        {recommendations.length > 0 ? (
+                                        {validSimilarityRecommendations.length > 0 ? (
                                             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-                                                {recommendations.map(({ drama: rec, score }: any) => (
+                                                {validSimilarityRecommendations.map(({ drama: rec, score }: any) => (
                                                     <RecommendationCard key={rec.url} drama={rec} score={score} onClick={onSelectDrama} />
                                                 ))}
                                             </div>
