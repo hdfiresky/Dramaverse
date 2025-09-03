@@ -100,7 +100,7 @@ export const useRouter = () => {
                 query: newQuery,
             });
         }
-    }, [location.query]);
+    }, [location.pathname, location.query]);
 
     /**
      * Updates one or more query parameters in the URL.

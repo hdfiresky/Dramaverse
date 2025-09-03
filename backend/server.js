@@ -315,7 +315,12 @@ app.get('/api/dramas', apiLimiter, async (req, res) => {
 });
 
 app.get('/api/dramas/by-actor/:actorName', apiLimiter, async (req, res) => {
-    const sql = `SELECT url, title, data FROM dramas WHERE JSON_SEARCH(data, 'one', ?, NULL, '$.cast[*].actor_name') IS NOT NULL`;
+    const sql = `
+        SELECT url, title, data 
+        FROM dramas 
+        WHERE JSON_SEARCH(data, 'one', ?, NULL, '$.cast[*].actor_name') IS NOT NULL
+        ORDER BY CAST(JSON_EXTRACT(data, '$.rating') AS DECIMAL(10,1)) DESC
+    `;
     const [rows] = await db.query(sql, [req.params.actorName]);
     // The 'mysql2' driver automatically parses JSON columns, so r.data is already an object.
     res.json(rows.map(r => ({...r.data, url: r.url, title: r.title})));
@@ -381,7 +386,7 @@ app.get('/api/dramas/recommendations/similar', apiLimiter, async (req, res) => {
         SELECT d2.url, d2.title, d2.data, (${scoreCalculation}) AS score
         FROM dramas d2
         WHERE d2.url != ?
-        HAVING score > 10
+        HAVING score > 5
         ORDER BY score DESC
         LIMIT 10;
     `;
@@ -543,11 +548,17 @@ app.get('/api/user/recommendations', apiLimiter, async (req, res) => {
             SELECT drama_url FROM user_statuses WHERE user_id = ?
             UNION SELECT drama_url FROM user_favorites WHERE user_id = ?
         `, [userId, userId]);
-        const seenUrls = seenRows.map(r => r.drama_url);
-        const seenUrlsParam = seenUrls.length > 0 ? seenUrls : [''];
+        
+        const seenUrls = new Set(seenRows.map(r => r.drama_url));
+        const recommendedUrls = new Set();
+        const results = { hiddenGem: null, genreSpecialist: null, starPower: null, criticallyAcclaimed: null };
 
-        const results = { hiddenGem: null, genreSpecialist: null, starPower: null, peerPick: null };
+        const getSeenAndRecommendedParams = () => {
+            const combined = new Set([...seenUrls, ...recommendedUrls]);
+            return combined.size > 0 ? Array.from(combined) : ['']; // Handle empty case for SQL IN clause
+        };
 
+        // 1. Genre Specialist & Hidden Gem (derived from the same top genre)
         const [topGenreRows] = await db.query(`
             SELECT g.genre, COUNT(*) c FROM user_statuses us JOIN dramas d ON us.drama_url = d.url,
             JSON_TABLE(d.data->'$.genres', '$[*]' COLUMNS(genre VARCHAR(255) PATH '$')) g
@@ -560,23 +571,24 @@ app.get('/api/user/recommendations', apiLimiter, async (req, res) => {
                 SELECT d.url, d.title, d.data FROM dramas d, JSON_TABLE(d.data->'$.genres', '$[*]' COLUMNS(genre VARCHAR(255) PATH '$')) g
                 WHERE g.genre = ? AND d.url NOT IN (?) ORDER BY CAST(JSON_EXTRACT(d.data, '$.rating') AS DECIMAL(10,1)) DESC, 
                 CAST(JSON_EXTRACT(d.data, '$.rating_count') AS UNSIGNED) DESC LIMIT 1
-            `, [topGenre, seenUrlsParam]);
+            `, [topGenre, getSeenAndRecommendedParams()]);
             if (gs) {
-                // The 'mysql2' driver automatically parses JSON columns, so gs.data is already an object.
                 results.genreSpecialist = { drama: {...gs.data, url: gs.url, title: gs.title}, genre: topGenre };
+                recommendedUrls.add(gs.url);
             }
             
             const [[hg]] = await db.query(`
                 SELECT d.url, d.title, d.data FROM dramas d, JSON_TABLE(d.data->'$.genres', '$[*]' COLUMNS(genre VARCHAR(255) PATH '$')) g
                 WHERE JSON_EXTRACT(d.data, '$.rating') > 8.8 AND CAST(JSON_EXTRACT(d.data, '$.popularity_rank') AS UNSIGNED) > 800
                 AND g.genre = ? AND d.url NOT IN (?) ORDER BY RAND() LIMIT 1
-            `, [topGenre, seenUrlsParam]);
+            `, [topGenre, getSeenAndRecommendedParams()]);
             if (hg) {
-                // The 'mysql2' driver automatically parses JSON columns, so hg.data is already an object.
                 results.hiddenGem = {...hg.data, url: hg.url, title: hg.title};
+                recommendedUrls.add(hg.url);
             }
         }
         
+        // 2. Star Power
         const [topActorRows] = await db.query(`
             SELECT c.actor_name, COUNT(*) as cnt FROM user_statuses us JOIN dramas d ON us.drama_url = d.url,
             JSON_TABLE(d.data->'$.cast', '$[*]' COLUMNS(actor_name VARCHAR(255) PATH '$.actor_name')) as c
@@ -588,29 +600,33 @@ app.get('/api/user/recommendations', apiLimiter, async (req, res) => {
             const [[sp]] = await db.query(`
                 SELECT d.url, d.title, d.data FROM dramas d, JSON_TABLE(d.data->'$.cast', '$[*]' COLUMNS(actor_name VARCHAR(255) PATH '$.actor_name')) c
                 WHERE c.actor_name = ? AND d.url NOT IN (?) ORDER BY CAST(JSON_EXTRACT(d.data, '$.popularity_rank') AS UNSIGNED) ASC LIMIT 1
-            `, [topActor, seenUrlsParam]);
+            `, [topActor, getSeenAndRecommendedParams()]);
             if (sp) {
-                // The 'mysql2' driver automatically parses JSON columns, so sp.data is already an object.
                 results.starPower = { drama: {...sp.data, url: sp.url, title: sp.title}, actor: topActor };
+                recommendedUrls.add(sp.url);
             }
         }
 
-        const [twins] = await db.query(`
-            SELECT us2.user_id, COUNT(*) c FROM user_statuses us1 JOIN user_statuses us2 ON us1.drama_url = us2.drama_url
-            WHERE us1.user_id = ? AND us1.status = 'Completed' AND us2.user_id != ? AND us2.status = 'Completed'
-            GROUP BY us2.user_id HAVING c > 2 ORDER BY c DESC, RAND() LIMIT 1
-        `, [userId, userId]);
-        
-        if (twins.length > 0) {
-            const twinId = twins[0].user_id;
-            const [[pp]] = await db.query(`
-                SELECT us.drama_url, d.title, d.data FROM user_statuses us JOIN dramas d ON us.drama_url = d.url
-                WHERE us.user_id = ? AND us.status = 'Completed' AND us.drama_url NOT IN (?)
-                ORDER BY CAST(JSON_EXTRACT(d.data, '$.rating') AS DECIMAL(10,1)) DESC LIMIT 1
-            `, [twinId, seenUrlsParam]);
-            if (pp) {
-                 // The 'mysql2' driver automatically parses JSON columns, so pp.data is already an object.
-                results.peerPick = {...pp.data, url: pp.drama_url, title: pp.title};
+        // 3. Critically Acclaimed (replaces Peer Pick)
+        const [top3Genres] = await db.query(`
+            SELECT g.genre FROM user_statuses us JOIN dramas d ON us.drama_url = d.url,
+            JSON_TABLE(d.data->'$.genres', '$[*]' COLUMNS(genre VARCHAR(255) PATH '$')) g
+            WHERE us.user_id = ? AND us.status = 'Completed' GROUP BY g.genre ORDER BY COUNT(*) DESC LIMIT 3
+        `, [userId]);
+
+        if (top3Genres.length > 0) {
+            const genres = top3Genres.map(g => g.genre);
+            const [[ca]] = await db.query(`
+                SELECT d.url, d.title, d.data FROM dramas d, JSON_TABLE(d.data->'$.genres', '$[*]' COLUMNS(genre VARCHAR(255) PATH '$')) g
+                WHERE g.genre IN (?)
+                AND CAST(JSON_EXTRACT(d.data, '$.rating') AS DECIMAL(10,1)) >= 9.0
+                AND CAST(JSON_EXTRACT(d.data, '$.rating_count') AS UNSIGNED) BETWEEN 10000 AND 50000
+                AND d.url NOT IN (?)
+                ORDER BY RAND() LIMIT 1
+            `, [genres, getSeenAndRecommendedParams()]);
+            if (ca) {
+                results.criticallyAcclaimed = {...ca.data, url: ca.url, title: ca.title};
+                recommendedUrls.add(ca.url);
             }
         }
 

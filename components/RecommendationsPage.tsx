@@ -21,7 +21,7 @@ type RecommendationResults = {
     hiddenGem: Drama | null;
     genreSpecialist: { drama: Drama; genre: string } | null;
     starPower: { drama: Drama; actor: string } | null;
-    peerPick: Drama | null;
+    criticallyAcclaimed: Drama | null;
 };
 
 // A sub-component for displaying a single recommendation engine's result.
@@ -134,9 +134,9 @@ export const RecommendationsPage: React.FC<RecommendationsPageProps> = (props) =
                         props={props}
                     />
                     <RecommendationEngineCard
-                        title="Peer Pick"
-                        description="Finds users with similar tastes and recommends a drama they loved that you haven't seen yet."
-                        result={recommendations.peerPick}
+                        title="Critically Acclaimed"
+                        description="Finds a drama with a very high rating in a genre you love, that might have flown under your radar."
+                        result={recommendations.criticallyAcclaimed}
                         props={props}
                     />
                 </div>
