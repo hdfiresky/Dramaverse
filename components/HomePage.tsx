@@ -42,6 +42,8 @@ interface HomePageProps {
     onSetStatus: (url: string, statusInfo: Omit<UserDramaStatus, 'updatedAt'>) => void;
     /** Callback to handle changes in the search input. */
     onSearchChange: (term: string) => void;
+    /** Callback to commit the search term to the URL. */
+    onSearchCommit: () => void;
     /** Callback to handle page changes from the Pagination component. */
     onPageChange: (page: number) => void;
     /** Callback to open the filter sidebar. */
@@ -75,6 +77,7 @@ export const HomePage: React.FC<HomePageProps> = ({
     onToggleFavorite,
     onSetStatus,
     onSearchChange,
+    onSearchCommit,
     onPageChange,
     onOpenFilters,
     onFiltersChange,
@@ -85,6 +88,13 @@ export const HomePage: React.FC<HomePageProps> = ({
     if (dataError) {
         return <div className="text-center py-20 text-red-400">{dataError}</div>;
     }
+
+    const handleKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+        if (event.key === 'Enter') {
+            onSearchCommit();
+            event.currentTarget.blur(); // Hide keyboard on mobile after enter
+        }
+    };
     
     return (
         <>
@@ -94,6 +104,8 @@ export const HomePage: React.FC<HomePageProps> = ({
                     placeholder="Search by title..." 
                     value={searchTerm} 
                     onChange={e => onSearchChange(e.target.value)}
+                    onBlur={onSearchCommit}
+                    onKeyDown={handleKeyDown}
                     className="w-full bg-brand-secondary p-3 rounded-md focus:ring-2 focus:ring-brand-accent focus:outline-none"
                     aria-label="Search by title"
                 />

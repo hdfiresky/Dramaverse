@@ -145,7 +145,11 @@ export const useDramas = (filters: Filters, searchTerm: string, sortPriorities: 
                 let result = processedDramas;
                 if (searchTerm) {
                     const lowercasedSearchTerm = searchTerm.toLowerCase();
-                    result = result.filter(d => d.title.toLowerCase().includes(lowercasedSearchTerm));
+                    result = result.filter(d => 
+                        d.title.toLowerCase().includes(lowercasedSearchTerm) ||
+                        d.alternative_names.some(name => name.toLowerCase().includes(lowercasedSearchTerm)) ||
+                        d.cast.some(member => member.actor_name.toLowerCase().includes(lowercasedSearchTerm))
+                    );
                 }
                 const hasActiveFilters = filters.genres.length > 0 || filters.excludeGenres.length > 0 || filters.tags.length > 0 || filters.excludeTags.length > 0 || filters.countries.length > 0 || filters.cast.length > 0 || filters.minRating > 0;
                 if (hasActiveFilters) {

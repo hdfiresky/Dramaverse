@@ -107,15 +107,14 @@ export default function App() {
         if (urlSearchTerm !== searchTerm) {
             setSearchTerm(urlSearchTerm);
         }
-    }, [urlSearchTerm, searchTerm]);
+    }, [urlSearchTerm]);
 
-    // Effect to sync the URL if the user's debounced input changes
-    useEffect(() => {
-        // This condition prevents the effect from firing when other query params (like 'page') change.
-        if (debouncedSearchTerm !== urlSearchTerm) {
-            updateQuery({ q: debouncedSearchTerm || undefined, page: '1' });
+    // Handler to commit the search term to the URL, called on blur or Enter.
+    const handleSearchCommit = useCallback(() => {
+        if (searchTerm !== urlSearchTerm) {
+            updateQuery({ q: searchTerm || undefined, page: '1' });
         }
-    }, [debouncedSearchTerm, urlSearchTerm, updateQuery]);
+    }, [searchTerm, urlSearchTerm, updateQuery]);
     
     // Dynamically calculate items per page for full rows
     const { width } = useWindowSize();
@@ -244,7 +243,7 @@ export default function App() {
     const renderActiveView = () => {
         switch (activeView) {
             case 'home':
-                return <HomePage dramas={displayDramas} isLoading={isLoading} dataError={dataError} totalDramas={totalDramas} userData={userData} filters={filters} searchTerm={searchTerm} currentPage={currentPage} itemsPerPage={itemsPerPage} isUserLoggedIn={!!currentUser} hasInitiallyLoaded={hasInitiallyLoaded} onSelectDrama={handleSelectDrama} onToggleFavorite={handleToggleFavorite} onSetStatus={handleSetStatus} onSearchChange={setSearchTerm} onPageChange={(p) => updateQuery({ page: String(p) })} onOpenFilters={() => setFilterSidebarOpen(true)} onFiltersChange={handleFiltersChange} onSetReviewAndTrackProgress={handleSetReviewAndTrackProgress} />;
+                return <HomePage dramas={displayDramas} isLoading={isLoading} dataError={dataError} totalDramas={totalDramas} userData={userData} filters={filters} searchTerm={searchTerm} currentPage={currentPage} itemsPerPage={itemsPerPage} isUserLoggedIn={!!currentUser} hasInitiallyLoaded={hasInitiallyLoaded} onSelectDrama={handleSelectDrama} onToggleFavorite={handleToggleFavorite} onSetStatus={handleSetStatus} onSearchChange={setSearchTerm} onSearchCommit={handleSearchCommit} onPageChange={(p) => updateQuery({ page: String(p) })} onOpenFilters={() => setFilterSidebarOpen(true)} onFiltersChange={handleFiltersChange} onSetReviewAndTrackProgress={handleSetReviewAndTrackProgress} />;
             case 'my-list':
                 if (currentUser) return <MyListPage userData={userData} onSelectDrama={handleSelectDrama} onToggleFavorite={handleToggleFavorite} onSetStatus={handleSetStatus} onSetReviewAndTrackProgress={handleSetReviewAndTrackProgress} />;
                 return null;

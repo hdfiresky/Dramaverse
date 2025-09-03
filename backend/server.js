@@ -248,7 +248,15 @@ app.get('/api/dramas', apiLimiter, async (req, res) => {
     try {
         const { page = '1', limit = '24', search = '', minRating = '0', genres = '', excludeGenres = '', tags = '', excludeTags = '', countries = '', cast = '', sort = '[]', sortMode = 'weighted' } = req.query;
         let whereClauses = ['1=1'], params = [];
-        if (search) { whereClauses.push('title LIKE ?'); params.push(`%${search}%`); }
+        if (search) { 
+            whereClauses.push(`(
+                title LIKE ? OR 
+                JSON_EXTRACT(data, '$.alternative_names') LIKE ? OR
+                JSON_EXTRACT(data, '$.cast') LIKE ?
+            )`); 
+            const likeTerm = `%${search}%`;
+            params.push(likeTerm, likeTerm, likeTerm);
+        }
         if (parseFloat(minRating) > 0) { whereClauses.push(`JSON_EXTRACT(data, '$.rating') >= ?`); params.push(parseFloat(minRating)); }
         if (countries) { whereClauses.push(`JSON_EXTRACT(data, '$.country') IN (?)`); params.push(countries.split(',')); }
         if (genres) genres.split(',').forEach(g => { whereClauses.push(`JSON_CONTAINS(data->'$.genres', CAST(? AS JSON))`); params.push(JSON.stringify(g)); });
