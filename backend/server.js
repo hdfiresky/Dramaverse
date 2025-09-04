@@ -221,10 +221,16 @@ app.use(helmet());
 const apiLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 200 });
 const authLimiter = rateLimit({ windowMs: 30 * 60 * 1000, max: 10 });
 app.use(cors(corsOptions));
-app.use(express.json({ limit: '50mb' }));
+app.use(express.json({ limit: '100mb' }));
+app.use(express.urlencoded({ extended: true, limit: '100mb' }));
 app.use(cookieParser());
 const io = new Server(server, { cors: corsOptions, path: SOCKET_IO_PATH });
-const upload = multer({ dest: UPLOAD_DIR });
+const upload = multer({
+    dest: UPLOAD_DIR,
+    limits: {
+        fileSize: 100 * 1024 * 1024, // 100MB limit
+    },
+});
 
 io.use((socket, next) => {
     const token = cookie.parse(socket.handshake.headers.cookie || '').token;
@@ -287,7 +293,7 @@ app.get('/api/dramas', apiLimiter, async (req, res) => {
                             let finalOrder = order;
 
                             if (p.key === 'aired_date') {
-                                columnExpression = `STR_TO_DATE(SUBSTRING_INDEX(JSON_UNQUOTE(JSON_EXTRACT(data, '$.aired_date')), ' - ', 1), '%b %d, %Y')`;
+                                columnExpression = `(CASE WHEN JSON_UNQUOTE(JSON_EXTRACT(data, '$.aired_date')) RLIKE '^[A-Za-z]{3} [0-9]{1,2}, [0-9]{4}' THEN STR_TO_DATE(SUBSTRING_INDEX(JSON_UNQUOTE(JSON_EXTRACT(data, '$.aired_date')), ' - ', 1), '%b %d, %Y') ELSE NULL END)`;
                             } else {
                                 const castType = p.key === 'rating' ? 'DECIMAL(10,1)' : 'UNSIGNED';
                                 columnExpression = `CAST(JSON_EXTRACT(data, '$.${p.key}') AS ${castType})`;
@@ -698,6 +704,13 @@ app.post('/api/admin/dramas/upload-preview', upload.single('dramaFile'), async (
                     return;
                 }
 
+                // This regex validates either a single date "Mmm dd, yyyy" or a range "Mmm dd, yyyy - Mmm dd, yyyy"
+                const validDateRegex = /^([A-Za-z]{3} \d{1,2}, \d{4})( - [A-Za-z]{3} \d{1,2}, \d{4})?$/;
+                if (d.aired_date && !validDateRegex.test(d.aired_date)) {
+                    results.errors.push({ index: globalIndex, drama: d, error: `Invalid aired_date format. Use 'Mmm dd, yyyy' or 'Mmm dd, yyyy - Mmm dd, yyyy'.` });
+                    return; // Skip to next item in chunk
+                }
+
                 if (existing.has(d.url)) {
                     const { url, title, ...rest } = d;
                     const existingData = existing.get(d.url);
@@ -745,11 +758,33 @@ app.get('/api/admin/dramas/backups', async (req, res) => {
         res.json(backups.sort((a,b) => new Date(b.createdAt) - new Date(a.createdAt)));
     } catch { res.json([]); }
 });
-app.get('/api/admin/dramas/download/:filename', (req, res) => {
-    const { filename } = req.params;
-    const p = (filename.startsWith('dramas-') && filename.endsWith('.json')) ? path.join(BACKUPS_DIR, filename) : (filename === 'dramas.json' ? DRAMAS_JSON_PATH : null);
-    if (!p) return res.status(400).json({ message: 'Invalid filename.' });
-    res.download(p, filename, (err) => { if (err) res.status(404).json({ message: 'File not found.' }); });
+app.get('/api/admin/dramas/download/:filename', async (req, res) => {
+    try {
+        const filename = path.basename(req.params.filename); // Sanitize to prevent path traversal
+        let filePath;
+
+        if (filename === 'dramas.json') {
+            const [rows] = await db.query(`SELECT url, title, data FROM dramas`);
+            const allDramas = rows.map(r => ({...r.data, url: r.url, title: r.title}));
+            res.setHeader('Content-disposition', `attachment; filename=${filename}`);
+            res.setHeader('Content-Type', 'application/json');
+            return res.send(JSON.stringify(allDramas, null, 2));
+
+        } else if (filename.startsWith('dramas-') && filename.endsWith('.json')) {
+            filePath = path.join(BACKUPS_DIR, filename);
+            await fs.access(filePath); // Check if file exists
+            return res.download(filePath, filename);
+        }
+        
+        return res.status(400).json({ message: 'Invalid filename.' });
+        
+    } catch (err) {
+        if (err.code === 'ENOENT') {
+            return res.status(404).json({ message: 'File not found.' });
+        }
+        console.error("Download error:", err);
+        return res.status(500).json({ message: 'Error downloading file.' });
+    }
 });
 app.post('/api/admin/dramas/rollback', async (req, res) => {
     const backupPath = path.join(BACKUPS_DIR, req.body.filename);

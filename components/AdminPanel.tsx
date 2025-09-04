@@ -366,7 +366,7 @@ const DataManagement: React.FC<{ onImportComplete: () => void }> = ({ onImportCo
                                        <p className="text-xs text-slate-400">{new Date(backup.createdAt).toLocaleString()}</p>
                                    </div>
                                    <div className="flex items-center gap-1">
-                                       <a href={`${API_BASE_URL}/admin/dramas/download/${backup.filename}`} title="Download" className="p-2 hover:bg-slate-700 rounded-full"><ArrowDownTrayIcon className="w-4 h-4" /></a>
+                                       <a href={`${API_BASE_URL}/admin/dramas/download/${backup.filename}`} download={backup.filename} title="Download" className="p-2 hover:bg-slate-700 rounded-full"><ArrowDownTrayIcon className="w-4 h-4" /></a>
                                        <button onClick={() => handleRollback(backup.filename)} title="Rollback to this version" className="p-2 hover:bg-slate-700 rounded-full"><ArrowUturnLeftIcon className="w-4 h-4 text-yellow-400"/></button>
                                    </div>
                                </div>
