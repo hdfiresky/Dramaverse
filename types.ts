@@ -177,6 +177,10 @@ export interface Filters {
   cast: string[];
   /** The minimum user rating a drama must have to be included. */
   minRating: number;
+  /** The start date for the aired date range filter (YYYY-MM-DD). */
+  startDate: string | null;
+  /** The end date for the aired date range filter (YYYY-MM-DD). */
+  endDate: string | null;
 }
 
 /**

@@ -298,7 +298,34 @@ export const FilterSidebar: React.FC<FilterSidebarProps> = ({
                         </div>
                     </div>
                     
-                    {/* Filtering Sections */}
+                    {/* --- Filtering Sections --- */}
+
+                    <div>
+                        <h3 className="text-lg font-semibold mb-3">Aired Date Range</h3>
+                        <div className="space-y-2">
+                            <div>
+                                <label htmlFor="start-date" className="block text-sm font-medium text-brand-text-secondary mb-1">From</label>
+                                <input 
+                                    type="date" 
+                                    id="start-date"
+                                    value={filters.startDate || ''}
+                                    onChange={e => onFiltersChange({ startDate: e.target.value || null })}
+                                    className="w-full bg-brand-primary p-2 rounded-md focus:ring-2 focus:ring-brand-accent focus:outline-none text-sm"
+                                />
+                            </div>
+                            <div>
+                                <label htmlFor="end-date" className="block text-sm font-medium text-brand-text-secondary mb-1">To</label>
+                                <input 
+                                    type="date" 
+                                    id="end-date"
+                                    value={filters.endDate || ''}
+                                    onChange={e => onFiltersChange({ endDate: e.target.value || null })}
+                                    className="w-full bg-brand-primary p-2 rounded-md focus:ring-2 focus:ring-brand-accent focus:outline-none text-sm"
+                                />
+                            </div>
+                        </div>
+                    </div>
+                    
                     <FilterSection 
                         title="Genres" 
                         items={metadata.genres} 

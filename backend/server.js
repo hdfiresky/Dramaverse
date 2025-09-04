@@ -252,7 +252,7 @@ app.get('/api/dramas/metadata', apiLimiter, async (req, res) => res.json(await g
 
 app.get('/api/dramas', apiLimiter, async (req, res) => {
     try {
-        const { page = '1', limit = '24', search = '', minRating = '0', genres = '', excludeGenres = '', tags = '', excludeTags = '', countries = '', cast = '', sort = '[]', sortMode = 'weighted' } = req.query;
+        const { page = '1', limit = '24', search = '', minRating = '0', genres = '', excludeGenres = '', tags = '', excludeTags = '', countries = '', cast = '', sort = '[]', sortMode = 'weighted', startDate, endDate } = req.query;
         let whereClauses = ['1=1'], params = [];
         if (search) { 
             whereClauses.push(`(
@@ -270,6 +270,25 @@ app.get('/api/dramas', apiLimiter, async (req, res) => {
         if (tags) tags.split(',').forEach(t => { whereClauses.push(`JSON_CONTAINS(data->'$.tags', CAST(? AS JSON))`); params.push(JSON.stringify(t)); });
         if (excludeTags) excludeTags.split(',').forEach(t => { whereClauses.push(`NOT JSON_CONTAINS(data->'$.tags', CAST(? AS JSON))`); params.push(JSON.stringify(t)); });
         if (cast) cast.split(',').forEach(actor => { whereClauses.push(`JSON_SEARCH(data, 'one', ?, NULL, '$.cast[*].actor_name') IS NOT NULL`); params.push(actor); });
+
+        if (startDate || endDate) {
+            const dramaStartDateCol = `STR_TO_DATE(SUBSTRING_INDEX(JSON_UNQUOTE(JSON_EXTRACT(data, '$.aired_date')), ' - ', 1), '%b %d, %Y')`;
+            const dramaEndDateCol = `IF(
+                JSON_UNQUOTE(JSON_EXTRACT(data, '$.aired_date')) LIKE '% - %', 
+                STR_TO_DATE(SUBSTRING_INDEX(JSON_UNQUOTE(JSON_EXTRACT(data, '$.aired_date')), ' - ', -1), '%b %d, %Y'), 
+                ${dramaStartDateCol}
+            )`;
+            
+            if (endDate) {
+                whereClauses.push(`${dramaStartDateCol} <= ?`);
+                params.push(endDate);
+            }
+            if (startDate) {
+                whereClauses.push(`${dramaEndDateCol} >= ?`);
+                params.push(startDate);
+            }
+        }
+
         const whereString = whereClauses.join(' AND ');
         const [[{ total }]] = await db.query(`SELECT COUNT(*) as total FROM dramas WHERE ${whereString}`, params);
         

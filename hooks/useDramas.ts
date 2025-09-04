@@ -127,6 +127,8 @@ export const useDramas = (filters: Filters, searchTerm: string, sortPriorities: 
                     if (filters.excludeTags.length > 0) params.set('excludeTags', filters.excludeTags.join(','));
                     if (filters.countries.length > 0) params.set('countries', filters.countries.join(','));
                     if (filters.cast.length > 0) params.set('cast', filters.cast.join(','));
+                    if (filters.startDate) params.set('startDate', filters.startDate);
+                    if (filters.endDate) params.set('endDate', filters.endDate);
 
                     const response = await fetch(`${API_BASE_URL}/dramas?${params.toString()}`);
                     if (!response.ok) throw new Error('Failed to fetch filtered drama data from server.');
@@ -151,17 +153,37 @@ export const useDramas = (filters: Filters, searchTerm: string, sortPriorities: 
                         d.cast.some(member => member.actor_name.toLowerCase().includes(lowercasedSearchTerm))
                     );
                 }
-                const hasActiveFilters = filters.genres.length > 0 || filters.excludeGenres.length > 0 || filters.tags.length > 0 || filters.excludeTags.length > 0 || filters.countries.length > 0 || filters.cast.length > 0 || filters.minRating > 0;
+                const hasActiveFilters = filters.genres.length > 0 || filters.excludeGenres.length > 0 || filters.tags.length > 0 || filters.excludeTags.length > 0 || filters.countries.length > 0 || filters.cast.length > 0 || filters.minRating > 0 || filters.startDate || filters.endDate;
                 if (hasActiveFilters) {
-                    result = result.filter(d =>
-                        (d.rating >= filters.minRating) &&
-                        (filters.countries.length === 0 || filters.countries.includes(d.country)) &&
-                        (filters.genres.length === 0 || filters.genres.every(g => d.genresSet.has(g))) &&
-                        (filters.excludeGenres.length === 0 || !filters.excludeGenres.some(g => d.genresSet.has(g))) &&
-                        (filters.tags.length === 0 || filters.tags.every(t => d.tagsSet.has(t))) &&
-                        (filters.excludeTags.length === 0 || !filters.excludeTags.some(t => d.tagsSet.has(t))) &&
-                        (filters.cast.length === 0 || filters.cast.every(actor => d.castSet.has(actor)))
-                    );
+                    const filterStart = filters.startDate ? new Date(filters.startDate).getTime() : -Infinity;
+                    const filterEnd = filters.endDate ? new Date(filters.endDate).getTime() : Infinity;
+                    
+                    result = result.filter(d => {
+                        // Date range filtering
+                        if (filters.startDate || filters.endDate) {
+                            if (!d.aired_date || d.aired_date === 'TBA') return false;
+                            
+                            const dateParts = d.aired_date.split(' - ');
+                            const dramaStart = new Date(dateParts[0]).getTime();
+                            const dramaEnd = dateParts.length > 1 ? new Date(dateParts[1]).getTime() : dramaStart;
+
+                            if (isNaN(dramaStart)) return false; // Invalid drama date format
+
+                            // Check for overlap: (StartA <= EndB) and (EndA >= StartB)
+                            if (!(dramaStart <= filterEnd && dramaEnd >= filterStart)) {
+                                return false;
+                            }
+                        }
+
+                        // Existing filters
+                        return (d.rating >= filters.minRating) &&
+                            (filters.countries.length === 0 || filters.countries.includes(d.country)) &&
+                            (filters.genres.length === 0 || filters.genres.every(g => d.genresSet.has(g))) &&
+                            (filters.excludeGenres.length === 0 || !filters.excludeGenres.some(g => d.genresSet.has(g))) &&
+                            (filters.tags.length === 0 || filters.tags.every(t => d.tagsSet.has(t))) &&
+                            (filters.excludeTags.length === 0 || !filters.excludeTags.some(t => d.tagsSet.has(t))) &&
+                            (filters.cast.length === 0 || filters.cast.every(actor => d.castSet.has(actor)));
+                    });
                 }
                 
                 // Apply sorting based on sortMode

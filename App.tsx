@@ -73,6 +73,8 @@ export default function App() {
     const countriesQuery = query.get('countries');
     const castQuery = query.get('cast');
     const minRatingQuery = query.get('minRating');
+    const startDateQuery = query.get('startDate');
+    const endDateQuery = query.get('endDate');
     const sortQuery = query.get('sort');
     const sortModeQuery = query.get('sortMode');
     const urlSearchTerm = query.get('q') || '';
@@ -86,7 +88,9 @@ export default function App() {
         countries: countriesQuery?.split(',').filter(Boolean) || [],
         cast: castQuery?.split(',').filter(Boolean) || [],
         minRating: parseFloat(minRatingQuery || '0'),
-    }), [genresQuery, excludeGenresQuery, tagsQuery, excludeTagsQuery, countriesQuery, castQuery, minRatingQuery]);
+        startDate: startDateQuery || null,
+        endDate: endDateQuery || null,
+    }), [genresQuery, excludeGenresQuery, tagsQuery, excludeTagsQuery, countriesQuery, castQuery, minRatingQuery, startDateQuery, endDateQuery]);
 
     const sortPriorities = useMemo<SortPriority[]>(() => 
         sortQuery ? JSON.parse(sortQuery) : [{ key: 'popularity_rank', order: 'desc' }, { key: 'rating', order: 'desc' }]
@@ -194,6 +198,8 @@ export default function App() {
             countries: updatedFilters.countries.length > 0 ? updatedFilters.countries.join(',') : undefined,
             cast: updatedFilters.cast.length > 0 ? updatedFilters.cast.join(',') : undefined,
             minRating: updatedFilters.minRating > 0 ? String(updatedFilters.minRating) : undefined,
+            startDate: updatedFilters.startDate || undefined,
+            endDate: updatedFilters.endDate || undefined,
             page: '1',
         }, true);
     }, [filters, updateQuery]);

@@ -14,7 +14,7 @@ interface ActiveFiltersDisplayProps {
     onFiltersChange: (updates: Partial<Filters>) => void;
 }
 
-type BadgeType = 'country' | 'genre' | 'tag' | 'cast' | 'exclude';
+type BadgeType = 'country' | 'genre' | 'tag' | 'cast' | 'exclude' | 'date';
 
 // A map to define the colors for each type of filter badge for easy styling.
 const badgeColors: Record<BadgeType, string> = {
@@ -23,6 +23,7 @@ const badgeColors: Record<BadgeType, string> = {
     tag: 'bg-indigo-500/20 text-indigo-300',
     cast: 'bg-purple-500/20 text-purple-300',
     exclude: 'bg-red-500/20 text-red-300',
+    date: 'bg-amber-500/20 text-amber-300',
 };
 
 /**
@@ -65,7 +66,7 @@ export const ActiveFiltersDisplay: React.FC<ActiveFiltersDisplayProps> = ({ filt
          * @param key The key of the filter in the `Filters` object.
          * @param itemToRemove The string value to remove from the array.
          */
-        const handleRemove = (key: keyof Omit<Filters, 'minRating'>, itemToRemove: string) => {
+        const handleRemove = (key: keyof Omit<Filters, 'minRating' | 'startDate' | 'endDate'>, itemToRemove: string) => {
             const currentValues = filters[key] as string[];
             const newValues = currentValues.filter(item => item !== itemToRemove);
             onFiltersChange({ [key]: newValues });
@@ -83,7 +84,25 @@ export const ActiveFiltersDisplay: React.FC<ActiveFiltersDisplayProps> = ({ filt
             ...filters.excludeTags.map(t => <FilterBadge key={`ex-tag-${t}`} label={t} onRemove={() => handleRemove('excludeTags', t)} type="exclude" />),
         ];
 
-        const combinedBadges = [...countryBadges, ...genreBadges, ...tagBadges, ...castBadges, ...excludeBadges];
+        let dateBadge = null;
+        if (filters.startDate || filters.endDate) {
+            let label = 'Aired: ';
+            if (filters.startDate && filters.endDate) {
+                label += `${filters.startDate} to ${filters.endDate}`;
+            } else if (filters.startDate) {
+                label += `after ${filters.startDate}`;
+            } else if (filters.endDate) {
+                label += `before ${filters.endDate}`;
+            }
+            dateBadge = <FilterBadge 
+                key="date-range" 
+                label={label} 
+                onRemove={() => onFiltersChange({ startDate: null, endDate: null })} 
+                type="date" 
+            />;
+        }
+
+        const combinedBadges = [...(dateBadge ? [dateBadge] : []), ...countryBadges, ...genreBadges, ...tagBadges, ...castBadges, ...excludeBadges];
         
         return {
             hasFilters: combinedBadges.length > 0,
